@@ -591,8 +591,9 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (HYBRID STABILIZER & MINI AVATAR)
+-- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (PIERCER BULLET & VERTICAL FIX)
 -- ============================================================================
+
 
 -- Prevent double execution
 if getgenv().__KillerHubSheriff_Loaded then
@@ -677,7 +678,7 @@ end)
 KillerHub:AddTask(pingTask)
 
 -- ============================================================================
--- USER INTERFACE
+-- USER INTERFACE (CLEAN & SIMPLE ENGLISH)
 -- ============================================================================
 local TabSheriff = KillerHub:CreateTab("Sheriff", "rbxassetid://15286655815")
 
@@ -992,33 +993,22 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
     local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
     
-    local realDisplacement = VECTOR_ZERO
+    local intendedVel = vec3New(humanoid.MoveDirection.X * walkSpeed, 0, humanoid.MoveDirection.Z * walkSpeed)
+    local actualPhysicsH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
+    local rawVelocity = actualPhysicsH:Lerp(intendedVel, math_clamp(moveMag, 0, 1))
+
     local calculatedVelY = rawPhysicsVel.Y
 
     if lastPositions[targetChar] then
         local dtPrev = os_clock() - lastPositions[targetChar].Time
         if dtPrev > 0.008 then
-            realDisplacement = (hrp.Position - lastPositions[targetChar].Pos) / dtPrev
-            if math_abs(realDisplacement.Y) > 0.5 then
-                calculatedVelY = realDisplacement.Y
+            local realYVel = (hrp.Position.Y - lastPositions[targetChar].Pos.Y) / dtPrev
+            if math_abs(realYVel) > 0.5 then
+                calculatedVelY = realYVel
             end
         end
     end
     lastPositions[targetChar] = {Pos = hrp.Position, Time = os_clock()}
-
-    local intendedVel = vec3New(humanoid.MoveDirection.X * walkSpeed, 0, humanoid.MoveDirection.Z * walkSpeed)
-    local actualPhysicsH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
-    local rawVelocity = actualPhysicsH:Lerp(intendedVel, math_clamp(moveMag, 0, 1))
-
-    -- FILTRO DE INERTIAL STABILIZER (Anti-Lag y Choque de Paredes)
-    local useStabilizer = Flag("Sheriff_InertialStab", true)
-    if useStabilizer then
-        local realHorizontalVel = vec3New(realDisplacement.X, 0, realDisplacement.Z)
-        -- Si el juego marca velocidad pero en el mundo 3D no se mueve (atascado o lag)
-        if realHorizontalVel.Magnitude < 1.2 and (moveMag > 0.1 or actualPhysicsH.Magnitude > 2) then
-            rawVelocity = realHorizontalVel
-        end
-    end
 
     local closeZone = Flag("Sheriff_CloseRange", 6)
     local predictionWeight = distance <= closeZone and 0 or 1
@@ -1036,7 +1026,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         vSmoothAlpha = 0.80
     elseif isStarting then
         vSmoothAlpha = 0.20
-    elseif useStabilizer then
+    elseif Flag("Sheriff_InertialStab", true) then
         vSmoothAlpha = math_clamp(14 * activeDT, 0.18, 0.50)
     end
     
@@ -1048,7 +1038,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
     local vScale = Flag("Sheriff_VScale", 100)
-    local hScale = Flag("Sheriff_HScale", 100)
     local shotType = Flag("Sheriff_ShotType", "Normal")
 
     local effectiveHLatency = 0
@@ -1060,33 +1049,31 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         autoScale = math_min(autoScale, 170)
 
         effectiveHLatency = (autoScale / 1000) * PREDICTION_BOOST
-
         local autoVScale = math_min(autoScale, 80)
         effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
     else
-        effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
+        local hScale = Flag("Sheriff_HScale", 100)
+        
+        -- Lógica de escala ajustada para Piercer Bullet
+        if shotType == "Piercer Bullet" then
+            if hScale <= 0 then
+                effectiveHLatency = (25 / 1000) * PREDICTION_BOOST
+            elseif hScale > 100 then
+                effectiveHLatency = ((hScale * 0.33) / 1000) * PREDICTION_BOOST
+            else
+                effectiveHLatency = ((hScale * 0.33) / 1000) * PREDICTION_BOOST
+            end
+        else
+            effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
+        end
 
         local cappedVScale = math_min(vScale, 80)
         effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
-    if shotType == "Piercer Bullet" then
-        if hScale == 0 then
-            effectiveHLatency = (28 / 1000) * PREDICTION_BOOST
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
-        elseif hScale > 100 then
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight * 0.90
-        else
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight * 0.33
-        end
-    else
-        horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
-    end
+    horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
 
-    -- DETECCIÓN NATIVA DE AVATARES DIMINUTOS / MINI RTHRO
-    local extentsSize = targetChar:GetExtentsSize()
-    local isMiniAvatar = (extentsSize.Y < 3.8)
-
+    -- Cálculo de predicción vertical mejorado para caídas
     if vScale > 0 then
         local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
@@ -1096,15 +1083,14 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
             local vFactor = effectiveVLatency * adaptiveYFactor
 
             if isAir then
-                if calculatedVelY < -0.5 then
-                    local fallingYFactor = calculatedVelY * 0.15
-                    local gravityEffect = 0.05 * workspace_Gravity * math_pow(vFactor, 2)
-                    local pY = (fallingYFactor * vFactor) - gravityEffect
+                if calculatedVelY < -1.0 then
+                    -- Al caer: casi nula predicción vertical para evitar que el tiro se vaya abajo
+                    local pY = calculatedVelY * (vFactor * 0.05)
                     verticalShift = vec3New(0, pY, 0)
                 else
-                    local miniHeightMult = isMiniAvatar and 0.65 or 1.0
+                    -- Al saltar o subir: predicción completa con gravedad
                     local gravityEffect = 0.5 * workspace_Gravity * math_pow(vFactor, 2)
-                    local pY = ((calculatedVelY * vFactor) - gravityEffect) * miniHeightMult
+                    local pY = (calculatedVelY * vFactor) - gravityEffect
                     verticalShift = vec3New(0, pY, 0)
                 end
             elseif isStairMovement then
@@ -1121,13 +1107,10 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
 
     local finalPredWithY = targetPosition + horizontalShift + verticalShift
-
     local floorY = getFloorHeight(hrp, targetChar)
     if floorY then
-        local minAllowedY = floorY + (isMiniAvatar and (extentsSize.Y * 0.3) or (hrp.Size.Y / 2)) + 0.05
-        if finalPredWithY.Y < minAllowedY then 
-            finalPredWithY = vec3New(finalPredWithY.X, minAllowedY, finalPredWithY.Z) 
-        end
+        local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.1
+        if finalPredWithY.Y < minAllowedY then finalPredWithY = vec3New(finalPredWithY.X, minAllowedY, finalPredWithY.Z) end
     end
 
     return finalPredWithY, finalPredNoY, minPredNoY
@@ -1251,7 +1234,8 @@ local function fireAtMurdererDirectly()
 
                     if shotType == "Piercer Bullet" then
                         local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.3), finalPredictedPos)
+                        -- Se dispara más cerca (0.5 studs) para evitar fallos
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
