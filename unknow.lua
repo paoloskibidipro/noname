@@ -591,9 +591,8 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (PIERCER BULLET & ULTRA AIM)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (STABILIZED PREDICTION)
 -- ============================================================================
-
 
 -- Prevent double execution
 if getgenv().__KillerHubSheriff_Loaded then
@@ -1056,6 +1055,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
     local vScale = Flag("Sheriff_VScale", 100)
     local shotType = Flag("Sheriff_ShotType", "Normal")
+    local rawHScale = Flag("Sheriff_HScale", 100)
 
     local effectiveHLatency = 0
     local effectiveVLatency = 0
@@ -1069,7 +1069,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         local autoVScale = math_min(autoScale, 80)
         effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
     else
-        local rawHScale = Flag("Sheriff_HScale", 100)
         local hScale = rawHScale
 
         -- Lógica especial para Piercer Bullet
@@ -1088,11 +1087,20 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
-    horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight * speedMultiplier * zigzagDampen
+    -- Estado Aéreo
+    local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
 
-    -- Cálculo optimizado de Predicción Vertical (Salto y Caída)
+    -- Atenuador Horizontal para evitar predicciones exageradas corriendo o en el aire
+    local airHorizontalDampen = isAir and 0.78 or 1.0
+    local hScaleDampen = 1.0
+    if rawHScale > 100 and shotType ~= "Piercer Bullet" then
+        hScaleDampen = 1.0 - math_min((rawHScale - 100) * 0.0018, 0.22)
+    end
+
+    horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * (effectiveHLatency * hScaleDampen) * predictionWeight * speedMultiplier * zigzagDampen * airHorizontalDampen
+
+    -- Cálculo de Predicción Vertical (Salto y Caída)
     if vScale > 0 then
-        local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
         if isAir or isStairMovement then
@@ -1101,11 +1109,9 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
             if isAir then
                 if calculatedVelY < -1 then
-                    -- Al caer: reduce la predicción para evitar disparar muy abajo
                     local pY = calculatedVelY * vFactor * 0.15
                     verticalShift = vec3New(0, pY, 0)
                 else
-                    -- Al saltar: predicción precisa sin exagerar
                     local gravityEffect = 0.35 * workspace_Gravity * math_pow(vFactor, 1.8)
                     local pY = (calculatedVelY * vFactor * 0.85) - gravityEffect
                     pY = math_clamp(pY, -2.0, 3.8)
@@ -1119,8 +1125,9 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         end
     end
 
-    if horizontalShift.Magnitude > (12.0 * speedMultiplier) then 
-        horizontalShift = horizontalShift.Unit * (12.0 * speedMultiplier) 
+    -- Límites estabilizadores de desplazamiento
+    if horizontalShift.Magnitude > (8.5 * speedMultiplier) then 
+        horizontalShift = horizontalShift.Unit * (8.5 * speedMultiplier) 
     end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
@@ -1214,8 +1221,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    local shotType = Flag("Sheriff_ShotType", "Normal")
-                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
+                    LeadTimeLine.Color = color3RGB(35, 255, 35) -- Siempre verde
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
