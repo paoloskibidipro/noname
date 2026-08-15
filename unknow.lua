@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (PIERCER BULLET & VERTICAL FIX)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (MINI-AVATAR & WALLCHECK FIX)
 -- ============================================================================
 
 
@@ -634,7 +634,7 @@ local os_clock = os.clock
 
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
-local PREDICTION_BOOST = 1.10 -- 10% Stronger Prediction Multiplier
+local PREDICTION_BOOST = 1.08
 
 -- Preventative cleanup
 if _G.KillerHubLines then
@@ -678,7 +678,7 @@ end)
 KillerHub:AddTask(pingTask)
 
 -- ============================================================================
--- USER INTERFACE (CLEAN & SIMPLE ENGLISH)
+-- USER INTERFACE
 -- ============================================================================
 local TabSheriff = KillerHub:CreateTab("Sheriff", "rbxassetid://15286655815")
 
@@ -903,9 +903,38 @@ local function getMurderer()
     return currentTarget
 end
 
+-- ============================================================================
+-- ADVANCED WALLCHECK & MINI-AVATAR DETECTOR
+-- ============================================================================
 local mapCastParams = RaycastParams.new()
 mapCastParams.FilterType = Enum.RaycastFilterType.Exclude
 local ignoreListCache = {} 
+
+-- Mide el tamaño real del avatar para corregir avatares minis y evitar tiros por encima
+local function getAvatarHeightCorrection(targetChar)
+    if not targetChar then return 0 end
+    local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
+    local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+    
+    local dropOffset = 0
+    
+    if humanoid then
+        -- Avatares enanos suelen reducir HipHeight a valores inferiores a 1.5
+        if humanoid.HipHeight < 1.4 and humanoid.HipHeight > 0 then
+            dropOffset = dropOffset + (1.5 - humanoid.HipHeight) * 0.75
+        end
+    end
+
+    if targetChar then
+        local _, size = targetChar:GetBoundingBox()
+        -- Si la altura total del modelo es menor a 4.8 studs (Avatar normal ~5.2)
+        if size.Y < 4.8 then
+            dropOffset = dropOffset + ((4.8 - size.Y) * 0.45)
+        end
+    end
+
+    return math_clamp(dropOffset, 0, 1.8)
+end
 
 local function getSmartTargetPart(targetChar)
     if not targetChar then return nil, true end
@@ -931,9 +960,9 @@ local function getSmartTargetPart(targetChar)
 
     local partsToScan = {
         hrp,
+        targetChar:FindFirstChild("UpperTorso") or targetChar:FindFirstChild("Torso"),
         targetChar:FindFirstChild("Head"),
-        targetChar:FindFirstChild("LeftHand") or targetChar:FindFirstChild("Left Arm"),
-        targetChar:FindFirstChild("RightHand") or targetChar:FindFirstChild("Right Arm")
+        targetChar:FindFirstChild("LowerTorso")
     }
     
     for i = 1, #partsToScan do
@@ -943,20 +972,36 @@ local function getSmartTargetPart(targetChar)
             local currentOrigin = origin
             local direction = targetPos - currentOrigin
             local blocked = false
+            local safetyIterations = 0
 
-            while direction.Magnitude > 0.1 do
+            while direction.Magnitude > 0.1 and safetyIterations < 10 do
+                safetyIterations = safetyIterations + 1
                 mapCastParams.FilterDescendantsInstances = ignoreListCache
                 local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
                 if not ray then break end
 
                 local hitInst = ray.Instance
-                if hitInst and (hitInst.CanCollide == true and hitInst.Transparency < 0.8) then
-                    blocked = true
-                    break 
+                if hitInst then
+                    -- FILTRO DE FALSOS POSITIVOS EN PAREDES Y ESTRUCTURAS DE MAPAS
+                    local isPassable = (hitInst.CanCollide == false) 
+                        or (hitInst.Transparency >= 0.5) 
+                        or (not hitInst.CanQuery)
+                        or (hitInst.Name:lower():find("glass"))
+                        or (hitInst.Name:lower():find("clip"))
+                        or (hitInst.Name:lower():find("ignore"))
+                        or (hitInst.Name:lower():find("invisible"))
+                        or (hitInst.Parent and hitInst.Parent.Name:lower():find("decor"))
+
+                    if not isPassable then
+                        blocked = true
+                        break 
+                    else
+                        table.insert(ignoreListCache, hitInst)
+                        currentOrigin = ray.Position + (direction.Unit * 0.1)
+                        direction = targetPos - currentOrigin
+                    end
                 else
-                    table.insert(ignoreListCache, hitInst)
-                    currentOrigin = ray.Position + (direction.Unit * 0.05)
-                    direction = targetPos - currentOrigin
+                    break
                 end
             end
 
@@ -976,7 +1021,7 @@ local function getFloorHeight(targetHrp, targetChar)
 end
 
 -- ============================================================================
--- PREDICTION ENGINE
+-- PREDICTION ENGINE (OPTIMIZED FOR MINI AVATARS & DAMPENED OVER-HEAD SHOTS)
 -- ============================================================================
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
@@ -986,7 +1031,11 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not hrp or not humanoid or humanoid.Health <= 0 or not localHrp then return nil, nil, nil end
 
     local activeDT = customDelta or emaDeltaTime
-    local targetPosition = targetPart.Position
+    
+    -- Ajuste dinámico de altura para no errar contra avatares minis ni tirar por arriba
+    local dropCorrection = getAvatarHeightCorrection(targetChar)
+    local targetPosition = targetPart.Position - vec3New(0, dropCorrection, 0)
+    
     local distance = (targetPosition - localHrp.Position).Magnitude
 
     local moveMag = humanoid.MoveDirection.Magnitude
@@ -1023,7 +1072,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local vSmoothAlpha = 0.35
     if isStopping then
-        vSmoothAlpha = 0.80
+        vSmoothAlpha = 0.85
     elseif isStarting then
         vSmoothAlpha = 0.20
     elseif Flag("Sheriff_InertialStab", true) then
@@ -1045,63 +1094,60 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     if prioritizePing then
         local rawMS = cachedPingValue * 1000
-        local autoScale = 90 + (rawMS * 0.6)
-        autoScale = math_min(autoScale, 170)
+        local autoScale = 85 + (rawMS * 0.55)
+        autoScale = math_min(autoScale, 160)
 
         effectiveHLatency = (autoScale / 1000) * PREDICTION_BOOST
-        local autoVScale = math_min(autoScale, 80)
+        local autoVScale = math_min(autoScale, 65)
         effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
     else
         local hScale = Flag("Sheriff_HScale", 100)
         
-        -- Lógica de escala ajustada para Piercer Bullet
         if shotType == "Piercer Bullet" then
             if hScale <= 0 then
-                effectiveHLatency = (25 / 1000) * PREDICTION_BOOST
-            elseif hScale > 100 then
-                effectiveHLatency = ((hScale * 0.33) / 1000) * PREDICTION_BOOST
+                effectiveHLatency = (20 / 1000) * PREDICTION_BOOST
             else
-                effectiveHLatency = ((hScale * 0.33) / 1000) * PREDICTION_BOOST
+                effectiveHLatency = ((hScale * 0.30) / 1000) * PREDICTION_BOOST
             end
         else
             effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
         end
 
-        local cappedVScale = math_min(vScale, 80)
+        local cappedVScale = math_min(vScale, 65) -- Límite de escala vertical para no sobrepasar la cabeza
         effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
     horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
 
-    -- Cálculo de predicción vertical mejorado para caídas
+    -- PREDICCIÓN VERTICAL CORREGIDA (EVITA PROYECTILES POR ENCIMA DE LA CABEZA)
     if vScale > 0 then
         local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
         if isAir or isStairMovement then
-            local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
+            local adaptiveYFactor = math_clamp((distance - closeZone) / 14, 0, 1)
             local vFactor = effectiveVLatency * adaptiveYFactor
 
             if isAir then
-                if calculatedVelY < -1.0 then
-                    -- Al caer: casi nula predicción vertical para evitar que el tiro se vaya abajo
-                    local pY = calculatedVelY * (vFactor * 0.05)
+                if calculatedVelY < -0.5 then
+                    -- Caída: amortiguación drástica
+                    local pY = calculatedVelY * (vFactor * 0.02)
                     verticalShift = vec3New(0, pY, 0)
                 else
-                    -- Al saltar o subir: predicción completa con gravedad
-                    local gravityEffect = 0.5 * workspace_Gravity * math_pow(vFactor, 2)
-                    local pY = (calculatedVelY * vFactor) - gravityEffect
-                    verticalShift = vec3New(0, pY, 0)
+                    -- Salto: Reducción para evitar disparar por encima de la cabeza
+                    local gravityEffect = 0.35 * workspace_Gravity * math_pow(vFactor, 2)
+                    local pY = (calculatedVelY * (vFactor * 0.55)) - gravityEffect
+                    verticalShift = vec3New(0, math_min(pY, 1.8), 0)
                 end
             elseif isStairMovement then
-                local pY = calculatedVelY * vFactor
+                local pY = calculatedVelY * vFactor * 0.5
                 verticalShift = vec3New(0, pY, 0)
             end
         end
     end
 
-    if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
-    if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
+    if horizontalShift.Magnitude > 8.0 then horizontalShift = horizontalShift.Unit * 8.0 end
+    if verticalShift.Magnitude > 3.5 then verticalShift = verticalShift.Unit * 3.5 end
 
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
@@ -1109,7 +1155,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local finalPredWithY = targetPosition + horizontalShift + verticalShift
     local floorY = getFloorHeight(hrp, targetChar)
     if floorY then
-        local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.1
+        local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.05
         if finalPredWithY.Y < minAllowedY then finalPredWithY = vec3New(finalPredWithY.X, minAllowedY, finalPredWithY.Z) end
     end
 
@@ -1234,8 +1280,7 @@ local function fireAtMurdererDirectly()
 
                     if shotType == "Piercer Bullet" then
                         local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        -- Se dispara más cerca (0.5 studs) para evitar fallos
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.4), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
