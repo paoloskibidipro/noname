@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (STABILIZED PREDICTION)
+-- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
 -- ============================================================================
 
 -- Prevent double execution
@@ -634,7 +634,6 @@ local os_clock = os.clock
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
 local PREDICTION_BOOST = 1.10 -- 10% Stronger Prediction Multiplier
-local BASE_MAX_SPEED = 16.715 -- Standard MM2 Max Movement Speed
 
 -- Preventative cleanup
 if _G.KillerHubLines then
@@ -684,7 +683,7 @@ local TabSheriff = KillerHub:CreateTab("Sheriff", "rbxassetid://15286655815")
 
 TabSheriff:CreateSection("Silent Aim")
 TabSheriff:CreateToggle("Sheriff_SilentAim", "Silent Aim", function() end)
-TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercer Bullet"}, function() end)
+TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercing"}, function() end)
 TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, function() end)
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
@@ -915,7 +914,7 @@ local function getSmartTargetPart(targetChar)
     local wallCheck = Flag("Sheriff_WallCheck", true)
     local shotType = Flag("Sheriff_ShotType", "Normal")
 
-    if not wallCheck or shotType == "Piercer Bullet" then 
+    if not wallCheck or shotType == "Piercing" then 
         return hrp, false 
     end
     
@@ -976,7 +975,7 @@ local function getFloorHeight(targetHrp, targetChar)
 end
 
 -- ============================================================================
--- PREDICTION ENGINE (OPTIMIZED & ENHANCED)
+-- PREDICTION ENGINE
 -- ============================================================================
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
@@ -985,21 +984,22 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local localHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp or not humanoid or humanoid.Health <= 0 or not localHrp then return nil, nil, nil end
 
-    local activeDT = customDelta or emaDeltaTime
     local targetPosition = targetPart.Position
+
+    -- Piercing Mode: Sin predicción (el tiro sale justo enfrente)
+    local shotType = Flag("Sheriff_ShotType", "Normal")
+    if shotType == "Piercing" then
+        return targetPosition, targetPosition, targetPosition
+    end
+
+    -- Normal Mode: Predicción exactamente igual
+    local activeDT = customDelta or emaDeltaTime
     local distance = (targetPosition - localHrp.Position).Magnitude
 
     local moveMag = humanoid.MoveDirection.Magnitude
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
-    local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or BASE_MAX_SPEED
+    local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
     
-    -- Detección de velocidad excesiva / SpeedHack
-    local actualSpeed = rawPhysicsVel.Magnitude
-    local speedMultiplier = 1.0
-    if actualSpeed > 17.5 then
-        speedMultiplier = actualSpeed / BASE_MAX_SPEED
-    end
-
     local intendedVel = vec3New(humanoid.MoveDirection.X * walkSpeed, 0, humanoid.MoveDirection.Z * walkSpeed)
     local actualPhysicsH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
     local rawVelocity = actualPhysicsH:Lerp(intendedVel, math_clamp(moveMag, 0, 1))
@@ -1040,95 +1040,65 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     smoothedVelocity = smoothedVelocity:Lerp(rawVelocity, vSmoothAlpha)
     if isStopping and smoothedVelocity.Magnitude < 0.3 then smoothedVelocity = VECTOR_ZERO end
 
-    -- Sistema Anti-ZigZag
-    local zigzagDampen = 1.0
-    if actualPhysicsH.Magnitude > 1.5 and smoothedVelocity.Magnitude > 1.5 then
-        local dotProduct = actualPhysicsH.Unit:Dot(smoothedVelocity.Unit)
-        if dotProduct < 0.3 then
-            zigzagDampen = math_clamp(0.4 + (dotProduct * 0.5), 0.35, 1.0)
-        end
-    end
-
     local horizontalShift = VECTOR_ZERO
     local verticalShift = VECTOR_ZERO
 
+    local jumpPred = Flag("Sheriff_JumpPred", true)
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
-    local vScale = Flag("Sheriff_VScale", 100)
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-    local rawHScale = Flag("Sheriff_HScale", 100)
-
-    local effectiveHLatency = 0
-    local effectiveVLatency = 0
 
     if prioritizePing then
         local rawMS = cachedPingValue * 1000
         local autoScale = 90 + (rawMS * 0.6)
         autoScale = math_min(autoScale, 170)
 
-        effectiveHLatency = (autoScale / 1000) * PREDICTION_BOOST
-        local autoVScale = math_min(autoScale, 80)
-        effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
-    else
-        local hScale = rawHScale
+        local effectiveLatency = (autoScale / 1000) * PREDICTION_BOOST
+        
+        horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveLatency * predictionWeight
 
-        -- Lógica especial para Piercer Bullet
-        if shotType == "Piercer Bullet" then
-            if rawHScale == 0 then
-                hScale = 27.5
-            elseif rawHScale > 100 then
-                hScale = rawHScale
-            else
-                hScale = rawHScale * 0.30
-            end
-        end
+        if jumpPred then
+            local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
+            local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
-        effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
-        local cappedVScale = math_min(vScale, 80)
-        effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
-    end
-
-    -- Estado Aéreo
-    local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
-
-    -- Atenuador Horizontal para evitar predicciones exageradas corriendo o en el aire
-    local airHorizontalDampen = isAir and 0.78 or 1.0
-    local hScaleDampen = 1.0
-    if rawHScale > 100 and shotType ~= "Piercer Bullet" then
-        hScaleDampen = 1.0 - math_min((rawHScale - 100) * 0.0018, 0.22)
-    end
-
-    horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * (effectiveHLatency * hScaleDampen) * predictionWeight * speedMultiplier * zigzagDampen * airHorizontalDampen
-
-    -- Cálculo de Predicción Vertical (Salto y Caída)
-    if vScale > 0 then
-        local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
-
-        if isAir or isStairMovement then
-            local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
-            local vFactor = effectiveVLatency * adaptiveYFactor
-
-            if isAir then
-                if calculatedVelY < -1 then
-                    local pY = calculatedVelY * vFactor * 0.15
+            if isAir or isStairMovement then
+                local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
+                if isAir then
+                    local gravityEffect = 0.5 * workspace_Gravity * math_pow(effectiveLatency, 2)
+                    local pY = (calculatedVelY * effectiveLatency * adaptiveYFactor) - gravityEffect
                     verticalShift = vec3New(0, pY, 0)
-                else
-                    local gravityEffect = 0.35 * workspace_Gravity * math_pow(vFactor, 1.8)
-                    local pY = (calculatedVelY * vFactor * 0.85) - gravityEffect
-                    pY = math_clamp(pY, -2.0, 3.8)
+                elseif isStairMovement then
+                    local pY = calculatedVelY * effectiveLatency * adaptiveYFactor
                     verticalShift = vec3New(0, pY, 0)
                 end
-            elseif isStairMovement then
-                local stairDampen = calculatedVelY < 0 and 0.2 or 0.7
-                local pY = calculatedVelY * vFactor * stairDampen
-                verticalShift = vec3New(0, pY, 0)
+            end
+        end
+    else
+        local hScale = Flag("Sheriff_HScale", 100)
+        local vScale = Flag("Sheriff_VScale", 100)
+
+        local manualHFactor = (hScale / 1000) * predictionWeight * PREDICTION_BOOST
+        horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * manualHFactor
+
+        if jumpPred then
+            local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
+            local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
+
+            if isAir or isStairMovement then
+                local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
+                local manualVFactor = (vScale / 1000) * adaptiveYFactor * PREDICTION_BOOST
+                
+                if isAir then
+                    local gravityEffect = 0.5 * workspace_Gravity * math_pow(manualVFactor, 2)
+                    local pY = (calculatedVelY * manualVFactor) - gravityEffect
+                    verticalShift = vec3New(0, pY, 0)
+                elseif isStairMovement then
+                    local pY = calculatedVelY * manualVFactor
+                    verticalShift = vec3New(0, pY, 0)
+                end
             end
         end
     end
 
-    -- Límites estabilizadores de desplazamiento
-    if horizontalShift.Magnitude > (8.5 * speedMultiplier) then 
-        horizontalShift = horizontalShift.Unit * (8.5 * speedMultiplier) 
-    end
+    if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
@@ -1221,7 +1191,8 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    LeadTimeLine.Color = color3RGB(35, 255, 35) -- Siempre verde
+                    local shotType = Flag("Sheriff_ShotType", "Normal")
+                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercing") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1239,7 +1210,7 @@ KillerHub:AddTask(renderConn)
 -- ============================================================================
 local function fireAtMurdererDirectly()
     local shotType = Flag("Sheriff_ShotType", "Normal")
-    if handLineIsBlocked and shotType ~= "Piercer Bullet" then return end
+    if handLineIsBlocked and shotType ~= "Piercing" then return end
 
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
@@ -1248,7 +1219,7 @@ local function fireAtMurdererDirectly()
     if murderer and murderer.Character then
         local targetChar = murderer.Character
         local bestPart, isBlocked = getSmartTargetPart(targetChar) 
-        if bestPart and (not isBlocked or shotType == "Piercer Bullet") then 
+        if bestPart and (not isBlocked or shotType == "Piercing") then 
             local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
             if finalPredictedPos then
                 autoEquipWeapon()
@@ -1259,9 +1230,9 @@ local function fireAtMurdererDirectly()
                         originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
                     end
 
-                    if shotType == "Piercer Bullet" then
+                    if shotType == "Piercing" then
                         local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.2), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1425,7 +1396,7 @@ KillerHub:AddTask(UserInputService.InputChanged:Connect(function(input)
 end))
 
 -- ============================================================================
--- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR)
+-- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR & PIERCING HOOK)
 -- ============================================================================
 local WeaponService = nil
 local ClientServices = ReplicatedStorage:FindFirstChild("ClientServices") or ReplicatedStorage:FindFirstChild("Services")
@@ -1464,7 +1435,7 @@ if WeaponService then
 
         local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
         if not bestPart then return nil end
-        if isBlocked and shotType ~= "Piercer Bullet" then return nil end
+        if isBlocked and shotType ~= "Piercing" then return nil end
 
         local currentTime = os_clock()
         local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
@@ -1497,6 +1468,35 @@ if WeaponService then
         end
     end
 end
+
+-- Interceptor de disparos nativos para Silent Aim en Modo Piercing
+if hookmetamethod then
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod and getnamecallmethod()
+        if not checkcaller() and method and string.lower(method) == "fireserver" and self.Name == "Shoot" then
+            local silentAim = Flag("Sheriff_SilentAim", false)
+            if silentAim then
+                local shotType = Flag("Sheriff_ShotType", "Normal")
+                if shotType == "Piercing" then
+                    local murderer = getMurderer()
+                    if murderer and murderer.Character then
+                        local bestPart = getSmartTargetPart(murderer.Character)
+                        local char = LocalPlayer.Character
+                        if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
+                            local targetPos = bestPart.Position
+                            local dir = (targetPos - char.HumanoidRootPart.Position).Unit
+                            local piercingOrigin = cframeNew(targetPos - (dir * 1.2), targetPos)
+                            return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
+                        end
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
+end
+
 
 
 -- ============================================================================
