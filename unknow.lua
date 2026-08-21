@@ -688,6 +688,10 @@ TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, functi
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
 
+TabSheriff:CreateSection("Auto Shoot")
+TabSheriff:CreateToggle("Sheriff_AutoShoot", "Auto Shoot", function() end)
+TabSheriff:CreateDropdown("Sheriff_AutoShootMode", "Auto Shoot Mode", {"Normal", "See Knife"}, function() end)
+
 TabSheriff:CreateSection("Prediction")
 TabSheriff:CreateSlider("Sheriff_HScale", "Horizontal Prediction", 0, 300, function() end)
 TabSheriff:CreateSlider("Sheriff_VScale", "Vertical Prediction", 0, 300, function() end)
@@ -986,7 +990,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local targetPosition = targetPart.Position
 
-    -- Piercing Mode: Sin predicción (el tiro sale justo enfrente)
+    -- Piercing Mode: Sin predicción
     local shotType = Flag("Sheriff_ShotType", "Normal")
     if shotType == "Piercing" then
         return targetPosition, targetPosition, targetPosition
@@ -1232,7 +1236,7 @@ local function fireAtMurdererDirectly()
 
                     if shotType == "Piercing" then
                         local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.2), finalPredictedPos)
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.3), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1253,6 +1257,47 @@ local inputConn = UserInputService.InputBegan:Connect(function(input, gameProces
     end
 end)
 KillerHub:AddTask(inputConn)
+
+-- ============================================================================
+-- HIGH-SPEED AUTO SHOOT ENGINE
+-- ============================================================================
+local lastAutoShootTick = 0
+local autoShootCooldown = 0.12
+
+local autoShootConn = RunService.Heartbeat:Connect(function()
+    if not Flag("Sheriff_AutoShoot", false) then return end
+
+    local now = os_clock()
+    if now - lastAutoShootTick < autoShootCooldown then return end
+
+    local murderer = getMurderer()
+    if not murderer or not murderer.Character then return end
+
+    local mode = Flag("Sheriff_AutoShootMode", "Normal")
+    local readyToShoot = false
+
+    if mode == "See Knife" then
+        for _, child in ipairs(murderer.Character:GetChildren()) do
+            if isMeleeWeapon(child) then
+                readyToShoot = true
+                break
+            end
+        end
+    elseif mode == "Normal" then
+        readyToShoot = true
+    end
+
+    if readyToShoot then
+        local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+        local shotType = Flag("Sheriff_ShotType", "Normal")
+
+        if bestPart and (not isBlocked or shotType == "Piercing") then
+            lastAutoShootTick = now
+            task.spawn(fireAtMurdererDirectly)
+        end
+    end
+end)
+KillerHub:AddTask(autoShootConn)
 
 -- ============================================================================
 -- TOUCH SHOOT BUTTON
@@ -1486,7 +1531,7 @@ if hookmetamethod then
                         if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
                             local targetPos = bestPart.Position
                             local dir = (targetPos - char.HumanoidRootPart.Position).Unit
-                            local piercingOrigin = cframeNew(targetPos - (dir * 1.2), targetPos)
+                            local piercingOrigin = cframeNew(targetPos - (dir * 1.3), targetPos)
                             return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
                         end
                     end
@@ -1496,7 +1541,6 @@ if hookmetamethod then
         return oldNamecall(self, ...)
     end)
 end
-
 
 
 -- ============================================================================
