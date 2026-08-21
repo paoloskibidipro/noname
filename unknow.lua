@@ -684,7 +684,7 @@ local TabSheriff = KillerHub:CreateTab("Sheriff", "rbxassetid://15286655815")
 
 TabSheriff:CreateSection("Silent Aim")
 TabSheriff:CreateToggle("Sheriff_SilentAim", "Silent Aim", function() end)
-TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercing"}, function() end)
+TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercer Bullet"}, function() end)
 TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, function() end)
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
@@ -915,7 +915,7 @@ local function getSmartTargetPart(targetChar)
     local wallCheck = Flag("Sheriff_WallCheck", true)
     local shotType = Flag("Sheriff_ShotType", "Normal")
 
-    if not wallCheck or shotType == "Piercing" then 
+    if not wallCheck or shotType == "Piercer Bullet" then 
         return hrp, false 
     end
     
@@ -1039,6 +1039,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local jumpPred = Flag("Sheriff_JumpPred", true)
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
+    local shotType = Flag("Sheriff_ShotType", "Normal")
 
     if prioritizePing then
         local rawMS = cachedPingValue * 1000
@@ -1069,6 +1070,12 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         local hScale = Flag("Sheriff_HScale", 100)
         local vScale = Flag("Sheriff_VScale", 100)
 
+        -- Ajuste especial para Piercer Bullet si está en 0 (pasa a ~28)
+        if shotType == "Piercer Bullet" then
+            if hScale <= 5 then hScale = 28 end
+            if vScale <= 5 then vScale = 28 end
+        end
+
         local manualHFactor = (hScale / 1000) * predictionWeight * PREDICTION_BOOST
         horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * manualHFactor
 
@@ -1095,11 +1102,10 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
-    -- Predicción ligera para modo Piercing (40% de desfase)
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-    if shotType == "Piercing" then
-        horizontalShift = horizontalShift * 0.40
-        verticalShift = verticalShift * 0.40
+    -- Reducción de predicción para Piercer Bullet (~67% menos = multiplicador 0.33)
+    if shotType == "Piercer Bullet" then
+        horizontalShift = horizontalShift * 0.33
+        verticalShift = verticalShift * 0.33
     end
 
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
@@ -1193,7 +1199,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
 
                 if handOnScreen and predOnScreen then
                     local shotType = Flag("Sheriff_ShotType", "Normal")
-                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercing") and color3RGB(35, 255, 35) or color3RGB(35, 255, 35)
+                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(35, 255, 35) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1201,7 +1207,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
             else LeadTimeLine.Visible = false end
         end
     else
-        PredictionLine.Visible = false; MinPredictionLine.Visible = false;  Line.Visible = false;
+        PredictionLine.Visible = false; MinPredictionLine.Visible = false; LeadTimeLine.Visible = false;
     end 
 end)
 KillerHub:AddTask(renderConn)
@@ -1211,7 +1217,7 @@ KillerHub:AddTask(renderConn)
 -- ============================================================================
 local function fireAtMurdererDirectly()
     local shotType = Flag("Sheriff_ShotType", "Normal")
-    if handLineIsBlocked and shotType ~= "Piercing" then return end
+    if handLineIsBlocked and shotType ~= "Piercer Bullet" then return end
 
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
@@ -1220,7 +1226,7 @@ local function fireAtMurdererDirectly()
     if murderer and murderer.Character then
         local targetChar = murderer.Character
         local bestPart, isBlocked = getSmartTargetPart(targetChar) 
-        if bestPart and (not isBlocked or shotType == "Piercing") then 
+        if bestPart and (not isBlocked or shotType == "Piercer Bullet") then 
             local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
             if finalPredictedPos then
                 autoEquipWeapon()
@@ -1231,10 +1237,14 @@ local function fireAtMurdererDirectly()
                         originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
                     end
 
-                    if shotType == "Piercing" then
+                    if shotType == "Piercer Bullet" then
+                        local hScale = Flag("Sheriff_HScale", 100)
                         local dir = finalPredictedPos - char.HumanoidRootPart.Position
                         dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.8), finalPredictedPos)
+                        
+                        -- Si la predicción es mayor a 100, se dispara más cerca (0.2 studs) para no fallar
+                        local offsetDist = (hScale > 100) and 0.2 or 0.5
+                        originCFrame = cframeNew(finalPredictedPos - (dir * offsetDist), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1398,7 +1408,7 @@ KillerHub:AddTask(UserInputService.InputChanged:Connect(function(input)
 end))
 
 -- ============================================================================
--- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR & PIERCING HOOK)
+-- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR & PIERCER BULLET HOOK)
 -- ============================================================================
 local WeaponService = nil
 local ClientServices = ReplicatedStorage:FindFirstChild("ClientServices") or ReplicatedStorage:FindFirstChild("Services")
@@ -1437,7 +1447,7 @@ if WeaponService then
 
         local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
         if not bestPart then return nil end
-        if isBlocked and shotType ~= "Piercing" then return nil end
+        if isBlocked and shotType ~= "Piercer Bullet" then return nil end
 
         local currentTime = os_clock()
         local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
@@ -1471,7 +1481,7 @@ if WeaponService then
     end
 end
 
--- Interceptor de disparos nativos para Silent Aim en Modo Piercing (Touch / Tap en Pantalla)
+-- Interceptor de disparos nativos para Silent Aim en Modo Piercer Bullet (Touch / Tap en pantalla)
 if hookmetamethod then
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
@@ -1480,17 +1490,28 @@ if hookmetamethod then
             local silentAim = Flag("Sheriff_SilentAim", false)
             if silentAim then
                 local shotType = Flag("Sheriff_ShotType", "Normal")
-                if shotType == "Piercing" then
-                    local murderer = getMurderer()
-                    if murderer and murderer.Character then
-                        local bestPart = getSmartTargetPart(murderer.Character)
-                        local char = LocalPlayer.Character
-                        if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
+                local murderer = getMurderer()
+                if murderer and murderer.Character then
+                    local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+                    local char = LocalPlayer.Character
+                    if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
+                        if not isBlocked or shotType == "Piercer Bullet" then
                             local targetPos = getPredictedPosition(murderer.Character, bestPart) or bestPart.Position
                             local dir = targetPos - char.HumanoidRootPart.Position
                             dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
-                            local piercingOrigin = cframeNew(targetPos - (dir * 0.8), targetPos)
-                            return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
+                            
+                            if shotType == "Piercer Bullet" then
+                                local hScale = Flag("Sheriff_HScale", 100)
+                                local offsetDist = (hScale > 100) and 0.2 or 0.5
+                                local piercingOrigin = cframeNew(targetPos - (dir * offsetDist), targetPos)
+                                return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
+                            else
+                                local charOrigin = char.HumanoidRootPart.CFrame
+                                if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then
+                                    charOrigin = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame
+                                end
+                                return oldNamecall(self, charOrigin, cframeNew(targetPos))
+                            end
                         end
                     end
                 end
@@ -1562,7 +1583,7 @@ PredRingOuter.Radius = 6.0; PredRingOuter.Thickness = 1.2; PredRingOuter.Filled 
 KillerHub:AddTask(PredRingOuter)
 
 local PredDotCenter = Drawing.new("Circle")
-PredDotCenter.Radius = 2.5; PredDotCenter.Thickness = 1; PredDotCenter.Filled = true; PredDotCenter.Color = Color3.fromRGB(255, 255, 255); PredDotCenter.Visible = false
+PredDotCenter.Radius = 2.5; PredDotCenter.Thickness = 1; PredDotCenter.Filled = true; PredDotCenter.Color = Color3.fromRGB(35, 255, 35); PredDotCenter.Visible = false
 KillerHub:AddTask(PredDotCenter)
 
 local PredLine = Drawing.new("Line")
