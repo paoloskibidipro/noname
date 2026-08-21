@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
+-- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
 -- ============================================================================
 
 
@@ -688,10 +688,6 @@ TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercing"
 TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, function() end)
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
-
-TabSheriff:CreateSection("Auto Shoot")
-TabSheriff:CreateToggle("Sheriff_AutoShoot", "Auto Shoot", function() end)
-TabSheriff:CreateDropdown("Sheriff_AutoShootMode", "Auto Shoot Mode", {"Normal", "See Knife"}, function() end)
 
 TabSheriff:CreateSection("Prediction")
 TabSheriff:CreateSlider("Sheriff_HScale", "Horizontal Prediction", 0, 300, function() end)
@@ -911,12 +907,12 @@ local mapCastParams = RaycastParams.new()
 mapCastParams.FilterType = Enum.RaycastFilterType.Exclude
 local ignoreListCache = {} 
 
-local function getSmartTargetPart(targetChar, forceRaycast)
+local function getSmartTargetPart(targetChar)
     if not targetChar then return nil, true end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
     if not hrp then return nil, true end
     
-    local wallCheck = forceRaycast or Flag("Sheriff_WallCheck", true)
+    local wallCheck = Flag("Sheriff_WallCheck", true)
     local shotType = Flag("Sheriff_ShotType", "Normal")
 
     if not wallCheck or shotType == "Piercing" then 
@@ -991,13 +987,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local targetPosition = targetPart.Position
 
-    -- Piercing Mode: Sin predicción
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-    if shotType == "Piercing" then
-        return targetPosition, targetPosition, targetPosition
-    end
-
-    -- Normal Mode: Predicción
     local activeDT = customDelta or emaDeltaTime
     local distance = (targetPosition - localHrp.Position).Magnitude
 
@@ -1106,6 +1095,13 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
+    -- Predicción ligera para modo Piercing (40% de desfase)
+    local shotType = Flag("Sheriff_ShotType", "Normal")
+    if shotType == "Piercing" then
+        horizontalShift = horizontalShift * 0.40
+        verticalShift = verticalShift * 0.40
+    end
+
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
 
@@ -1205,7 +1201,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
             else LeadTimeLine.Visible = false end
         end
     else
-        PredictionLine.Visible = false; MinPredictionLine.Visible = false; LeadTimeLine.Visible = false;
+        PredictionLine.Visible = false; MinPredictionLine.Visible = false;  Line.Visible = false;
     end 
 end)
 KillerHub:AddTask(renderConn)
@@ -1236,8 +1232,9 @@ local function fireAtMurdererDirectly()
                     end
 
                     if shotType == "Piercing" then
-                        local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.3), finalPredictedPos)
+                        local dir = finalPredictedPos - char.HumanoidRootPart.Position
+                        dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.8), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1258,50 +1255,6 @@ local inputConn = UserInputService.InputBegan:Connect(function(input, gameProces
     end
 end)
 KillerHub:AddTask(inputConn)
-
--- ============================================================================
--- HIGH-SPEED AUTO SHOOT ENGINE
--- ============================================================================
-local lastAutoShootTick = 0
-local autoShootCooldown = 0.12
-
-local autoShootConn = RunService.Heartbeat:Connect(function()
-    if not Flag("Sheriff_AutoShoot", false) then return end
-
-    local now = os_clock()
-    if now - lastAutoShootTick < autoShootCooldown then return end
-
-    local murderer = getMurderer()
-    if not murderer or not murderer.Character then return end
-
-    local mode = Flag("Sheriff_AutoShootMode", "Normal")
-    local readyToShoot = false
-
-    if mode == "See Knife" then
-        for _, child in ipairs(murderer.Character:GetChildren()) do
-            if isMeleeWeapon(child) then
-                readyToShoot = true
-                break
-            end
-        end
-    elseif mode == "Normal" then
-        readyToShoot = true
-    end
-
-    if readyToShoot then
-        local shotType = Flag("Sheriff_ShotType", "Normal")
-        local isPiercing = (shotType == "Piercing")
-
-        -- Para Auto Shoot se exige linea de vision directa (forceRaycast = true) a menos que Shot Type sea Piercing
-        local bestPart, isBlocked = getSmartTargetPart(murderer.Character, true)
-
-        if isPiercing or (bestPart and not isBlocked) then
-            lastAutoShootTick = now
-            task.spawn(fireAtMurdererDirectly)
-        end
-    end
-end)
-KillerHub:AddTask(autoShootConn)
 
 -- ============================================================================
 -- TOUCH SHOOT BUTTON
@@ -1518,7 +1471,7 @@ if WeaponService then
     end
 end
 
--- Interceptor de disparos nativos para Silent Aim en Modo Piercing
+-- Interceptor de disparos nativos para Silent Aim en Modo Piercing (Touch / Tap en Pantalla)
 if hookmetamethod then
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
@@ -1533,9 +1486,10 @@ if hookmetamethod then
                         local bestPart = getSmartTargetPart(murderer.Character)
                         local char = LocalPlayer.Character
                         if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
-                            local targetPos = bestPart.Position
-                            local dir = (targetPos - char.HumanoidRootPart.Position).Unit
-                            local piercingOrigin = cframeNew(targetPos - (dir * 1.3), targetPos)
+                            local targetPos = getPredictedPosition(murderer.Character, bestPart) or bestPart.Position
+                            local dir = targetPos - char.HumanoidRootPart.Position
+                            dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
+                            local piercingOrigin = cframeNew(targetPos - (dir * 0.8), targetPos)
                             return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
                         end
                     end
