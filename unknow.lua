@@ -591,8 +591,9 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
 -- ============================================================================
+
 
 -- Prevent double execution
 if getgenv().__KillerHubSheriff_Loaded then
@@ -910,12 +911,12 @@ local mapCastParams = RaycastParams.new()
 mapCastParams.FilterType = Enum.RaycastFilterType.Exclude
 local ignoreListCache = {} 
 
-local function getSmartTargetPart(targetChar)
+local function getSmartTargetPart(targetChar, forceRaycast)
     if not targetChar then return nil, true end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
     if not hrp then return nil, true end
     
-    local wallCheck = Flag("Sheriff_WallCheck", true)
+    local wallCheck = forceRaycast or Flag("Sheriff_WallCheck", true)
     local shotType = Flag("Sheriff_ShotType", "Normal")
 
     if not wallCheck or shotType == "Piercing" then 
@@ -996,7 +997,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         return targetPosition, targetPosition, targetPosition
     end
 
-    -- Normal Mode: Predicción exactamente igual
+    -- Normal Mode: Predicción
     local activeDT = customDelta or emaDeltaTime
     local distance = (targetPosition - localHrp.Position).Magnitude
 
@@ -1196,7 +1197,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
 
                 if handOnScreen and predOnScreen then
                     local shotType = Flag("Sheriff_ShotType", "Normal")
-                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercing") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
+                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercing") and color3RGB(35, 255, 35) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1288,10 +1289,13 @@ local autoShootConn = RunService.Heartbeat:Connect(function()
     end
 
     if readyToShoot then
-        local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
         local shotType = Flag("Sheriff_ShotType", "Normal")
+        local isPiercing = (shotType == "Piercing")
 
-        if bestPart and (not isBlocked or shotType == "Piercing") then
+        -- Para Auto Shoot se exige linea de vision directa (forceRaycast = true) a menos que Shot Type sea Piercing
+        local bestPart, isBlocked = getSmartTargetPart(murderer.Character, true)
+
+        if isPiercing or (bestPart and not isBlocked) then
             lastAutoShootTick = now
             task.spawn(fireAtMurdererDirectly)
         end
