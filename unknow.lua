@@ -1070,7 +1070,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         local hScale = Flag("Sheriff_HScale", 100)
         local vScale = Flag("Sheriff_VScale", 100)
 
-        -- Ajuste especial para Piercer Bullet si está en 0 (pasa a ~28)
         if shotType == "Piercer Bullet" then
             if hScale <= 5 then hScale = 28 end
             if vScale <= 5 then vScale = 28 end
@@ -1102,7 +1101,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
-    -- Reducción de predicción para Piercer Bullet (~67% menos = multiplicador 0.33)
     if shotType == "Piercer Bullet" then
         horizontalShift = horizontalShift * 0.33
         verticalShift = verticalShift * 0.33
@@ -1241,8 +1239,6 @@ local function fireAtMurdererDirectly()
                         local hScale = Flag("Sheriff_HScale", 100)
                         local dir = finalPredictedPos - char.HumanoidRootPart.Position
                         dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
-                        
-                        -- Si la predicción es mayor a 100, se dispara más cerca (0.2 studs) para no fallar
                         local offsetDist = (hScale > 100) and 0.2 or 0.5
                         originCFrame = cframeNew(finalPredictedPos - (dir * offsetDist), finalPredictedPos)
                     end
@@ -1427,44 +1423,43 @@ if not WeaponService then
     end
 end
 
+local lastHookCallTime = os_clock()
+
+local function getPredictedTargetPos(customDelta)
+    local silentAim = Flag("Sheriff_SilentAim", false)
+    if not silentAim then return nil end
+
+    local shotType = Flag("Sheriff_ShotType", "Normal")
+    local useDetect = Flag("Sheriff_WeaponDetect", false)
+
+    if useDetect then
+        local gun, _ = getGunLocation()
+        if not gun then return nil end
+    end
+
+    local murderer = getMurderer()
+    if not murderer or not murderer.Character then return nil end
+
+    local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+    if not bestPart then return nil end
+    if isBlocked and shotType ~= "Piercer Bullet" then return nil end
+
+    local currentTime = os_clock()
+    local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
+    lastHookCallTime = currentTime
+
+    return getPredictedPosition(murderer.Character, bestPart, dt)
+end
+
 if WeaponService then
     local oldGetTargetPosition = WeaponService.GetTargetPosition
     local oldGetMouseTargetCFrame = WeaponService.GetMouseTargetCFrame
-    local lastHookCallTime = os_clock()
-
-    local function getPredictedTargetCFrame(customDelta)
-        local silentAim = Flag("Sheriff_SilentAim", false)
-        if not silentAim then return nil end
-
-        local shotType = Flag("Sheriff_ShotType", "Normal")
-        local useDetect = Flag("Sheriff_WeaponDetect", false)
-
-        local gun, _ = getGunLocation()
-        if useDetect and not gun then return nil end
-
-        local murderer = getMurderer()
-        if not murderer or not murderer.Character then return nil end
-
-        local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
-        if not bestPart then return nil end
-        if isBlocked and shotType ~= "Piercer Bullet" then return nil end
-
-        local currentTime = os_clock()
-        local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
-        lastHookCallTime = currentTime
-
-        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart, dt)
-        if finalPredictedPos then
-            return cframeNew(finalPredictedPos)
-        end
-        return nil
-    end
 
     if oldGetTargetPosition then
         WeaponService.GetTargetPosition = function(self, ...)
-            local targetCF = getPredictedTargetCFrame()
-            if targetCF then
-                return targetCF
+            local targetPos = getPredictedTargetPos()
+            if targetPos then
+                return targetPos -- Devuelve Vector3 directamente para evitar error de CFrame
             end
             return oldGetTargetPosition(self, ...)
         end
@@ -1472,16 +1467,16 @@ if WeaponService then
 
     if oldGetMouseTargetCFrame then
         WeaponService.GetMouseTargetCFrame = function(self, ...)
-            local targetCF = getPredictedTargetCFrame()
-            if targetCF then
-                return targetCF
+            local targetPos = getPredictedTargetPos()
+            if targetPos then
+                return cframeNew(targetPos) -- Devuelve CFrame
             end
             return oldGetMouseTargetCFrame(self, ...)
         end
     end
 end
 
--- Interceptor de disparos nativos para Silent Aim en Modo Piercer Bullet (Touch / Tap en pantalla)
+-- Interceptor de disparos nativos para Silent Aim (Touch / Tap en Pantalla / Click)
 if hookmetamethod then
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
@@ -1496,7 +1491,7 @@ if hookmetamethod then
                     local char = LocalPlayer.Character
                     if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
                         if not isBlocked or shotType == "Piercer Bullet" then
-                            local targetPos = getPredictedPosition(murderer.Character, bestPart) or bestPart.Position
+                            local targetPos = getPredictedTargetPos() or bestPart.Position
                             local dir = targetPos - char.HumanoidRootPart.Position
                             dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
                             
@@ -1583,7 +1578,7 @@ PredRingOuter.Radius = 6.0; PredRingOuter.Thickness = 1.2; PredRingOuter.Filled 
 KillerHub:AddTask(PredRingOuter)
 
 local PredDotCenter = Drawing.new("Circle")
-PredDotCenter.Radius = 2.5; PredDotCenter.Thickness = 1; PredDotCenter.Filled = true; PredDotCenter.Color = Color3.fromRGB(35, 255, 35); PredDotCenter.Visible = false
+PredDotCenter.Radius = 2.5; PredDotCenter.Thickness = 1; PredDotCenter.Filled = true; PredDotCenter.Color = Color3.fromRGB(255, 255, 255); PredDotCenter.Visible = false
 KillerHub:AddTask(PredDotCenter)
 
 local PredLine = Drawing.new("Line")
