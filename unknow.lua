@@ -976,7 +976,7 @@ local function getFloorHeight(targetHrp, targetChar)
 end
 
 -- ============================================================================
--- PREDICTION ENGINE (EXACT MATCH TO TOUCH FIX & UNIVERSAL AIM VERSION)
+-- PREDICTION ENGINE (TOUCH FIX & UNIVERSAL AIM PREDICTION)
 -- ============================================================================
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
@@ -1389,7 +1389,7 @@ KillerHub:AddTask(UserInputService.InputChanged:Connect(function(input)
 end))
 
 -- ============================================================================
--- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR)
+-- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR & REMOTEEVENT OVERRIDE)
 -- ============================================================================
 local WeaponService = nil
 local ClientServices = ReplicatedStorage:FindFirstChild("ClientServices") or ReplicatedStorage:FindFirstChild("Services")
@@ -1408,38 +1408,36 @@ if not WeaponService then
     end
 end
 
+local function getPredictedTargetCFrame(customDelta)
+    local silentAim = Flag("Sheriff_SilentAim", false)
+    if not silentAim then return nil end
+
+    local shotType = Flag("Sheriff_ShotType", "Normal")
+    local useDetect = Flag("Sheriff_WeaponDetect", false)
+
+    local gun, _ = getGunLocation()
+    if useDetect and not gun then return nil end
+
+    local murderer = getMurderer()
+    if not murderer or not murderer.Character then return nil end
+
+    local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+    if not bestPart then return nil end
+    if isBlocked and shotType ~= "Piercer Bullet" then return nil end
+
+    local currentTime = os_clock()
+    local dt = customDelta or math_clamp(currentTime - lastScanTime, 0.008, 0.033)
+
+    local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart, dt)
+    if finalPredictedPos then
+        return cframeNew(finalPredictedPos)
+    end
+    return nil
+end
+
 if WeaponService then
     local oldGetTargetPosition = WeaponService.GetTargetPosition
     local oldGetMouseTargetCFrame = WeaponService.GetMouseTargetCFrame
-    local lastHookCallTime = os_clock()
-
-    local function getPredictedTargetCFrame(customDelta)
-        local silentAim = Flag("Sheriff_SilentAim", false)
-        if not silentAim then return nil end
-
-        local shotType = Flag("Sheriff_ShotType", "Normal")
-        local useDetect = Flag("Sheriff_WeaponDetect", false)
-
-        local gun, _ = getGunLocation()
-        if useDetect and not gun then return nil end
-
-        local murderer = getMurderer()
-        if not murderer or not murderer.Character then return nil end
-
-        local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
-        if not bestPart then return nil end
-        if isBlocked and shotType ~= "Piercer Bullet" then return nil end
-
-        local currentTime = os_clock()
-        local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
-        lastHookCallTime = currentTime
-
-        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart, dt)
-        if finalPredictedPos then
-            return cframeNew(finalPredictedPos)
-        end
-        return nil
-    end
 
     if oldGetTargetPosition then
         WeaponService.GetTargetPosition = function(self, ...)
@@ -1460,6 +1458,42 @@ if WeaponService then
             return oldGetMouseTargetCFrame(self, ...)
         end
     end
+end
+
+-- Interceptor universal para emular Piercer Bullet en el Silent Aim normal
+if hookmetamethod then
+    local oldNamecall
+    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if not checkcaller() and (method == "FireServer" or method == "fireServer") and self and self.Name == "Shoot" then
+            local silentAim = Flag("Sheriff_SilentAim", false)
+            local shotType = Flag("Sheriff_ShotType", "Normal")
+            
+            if silentAim and shotType == "Piercer Bullet" then
+                local murderer = getMurderer()
+                if murderer and murderer.Character then
+                    local bestPart = getSmartTargetPart(murderer.Character)
+                    if bestPart then
+                        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart)
+                        if finalPredictedPos then
+                            local char = LocalPlayer.Character
+                            local localHrp = char and char:FindFirstChild("HumanoidRootPart")
+                            if localHrp then
+                                local args = {...}
+                                local dir = (finalPredictedPos - localHrp.Position).Unit
+                                local piercerOrigin = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
+                                
+                                args[1] = piercerOrigin
+                                args[2] = cframeNew(finalPredictedPos)
+                                return oldNamecall(self, unpack(args))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return oldNamecall(self, ...)
+    end)
 end
 
 
