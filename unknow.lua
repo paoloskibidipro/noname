@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (LEGIT AUTO-EQUIP & AUTO-UNEQUIP)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (ANTI-SPAM LEGIT ENGINE)
 -- ============================================================================
 
 -- Prevent double execution
@@ -1203,9 +1203,13 @@ end)
 KillerHub:AddTask(renderConn)
 
 -- ============================================================================
--- FIRING EXECUTION (LEGIT ENGINE + AUTO EQUIP / UNEQUIP)
+-- FIRING EXECUTION (ANTI-SPAM LEGIT ENGINE)
 -- ============================================================================
+local isFiring = false
+
 local function fireAtMurdererDirectly()
+    if isFiring then return end -- Bloqueo de seguridad: Ignora spams si ya hay un disparo en proceso
+
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
 
@@ -1230,33 +1234,41 @@ local function fireAtMurdererDirectly()
     local gun, location = getGunLocation()
     if not gun then return end
 
-    if location ~= char then
-        hum:EquipTool(gun)
-        task.wait(0.1)
-    end
+    isFiring = true
 
-    if gun and gun.Parent == char and gun:FindFirstChild("Shoot") then
-        local originCFrame = char.HumanoidRootPart.CFrame
-        if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
-            originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
+    pcall(function()
+        -- 1. EQUIPADO LEGIT (Solo si está en el Backpack)
+        if location ~= char then
+            hum:EquipTool(gun)
+            task.wait(0.08) -- Sincronización mínima de red para equipar
         end
 
-        if shotType == "Piercer Bullet" then
-            local dir = (targetPos - char.HumanoidRootPart.Position).Unit
-            originCFrame = cframeNew(targetPos - (dir * 0.5), targetPos)
-        end
+        -- 2. DISPARO
+        if gun and gun.Parent == char and gun:FindFirstChild("Shoot") then
+            local originCFrame = char.HumanoidRootPart.CFrame
+            if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
+                originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
+            end
 
-        gun.Shoot:FireServer(originCFrame, cframeNew(targetPos))
+            if shotType == "Piercer Bullet" then
+                local dir = (targetPos - char.HumanoidRootPart.Position).Unit
+                originCFrame = cframeNew(targetPos - (dir * 0.5), targetPos)
+            end
 
-        if Flag("Sheriff_UnequipGun", false) then
-            task.spawn(function()
-                task.wait(0.25)
+            gun.Shoot:FireServer(originCFrame, cframeNew(targetPos))
+
+            -- 3. DESEQUIPADO LEGIT & ANTI-SPAM COOLDOWN
+            if Flag("Sheriff_UnequipGun", false) then
+                task.wait(0.22) -- Mantener en mano brevemente para visualizar animación/fogonazo
                 if char and hum and hum.Health > 0 then
                     hum:UnequipTools()
                 end
-            end)
+            end
+            task.wait(0.08) -- Breve margen de enfriamiento
         end
-    end
+    end)
+
+    isFiring = false
 end
 
 -- Keybind listener
