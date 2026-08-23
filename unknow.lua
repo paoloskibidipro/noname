@@ -591,9 +591,8 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (PIERCER BULLET + TOUCH FIX HYBRID)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (INSTANT FIRE & AUTO UNEQUIP)
 -- ============================================================================
-
 
 -- Prevent double execution
 if getgenv().__KillerHubSheriff_Loaded then
@@ -634,7 +633,7 @@ local os_clock = os.clock
 
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
-local PREDICTION_BOOST = 1.10 -- 10% Stronger Prediction Multiplier
+local PREDICTION_BOOST = 1.10
 
 -- Preventative cleanup
 if _G.KillerHubLines then
@@ -678,7 +677,7 @@ end)
 KillerHub:AddTask(pingTask)
 
 -- ============================================================================
--- USER INTERFACE (CLEAN & SIMPLE ENGLISH)
+-- USER INTERFACE
 -- ============================================================================
 local TabSheriff = KillerHub:CreateTab("Sheriff", "rbxassetid://15286655815")
 
@@ -686,6 +685,7 @@ TabSheriff:CreateSection("Silent Aim")
 TabSheriff:CreateToggle("Sheriff_SilentAim", "Silent Aim", function() end)
 TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercer Bullet"}, function() end)
 TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, function() end)
+TabSheriff:CreateToggle("Sheriff_UnequipGun", "Unequip Gun", function() end) -- 🎯 NUEVA OPCIÓN
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
 
@@ -793,6 +793,11 @@ local lastPositions = {}
 local handLineIsBlocked = false 
 local lastScanTime = 0
 
+-- INSTANT-FIRE CACHE ENGINE
+local cachedPredictedPos = nil
+local cachedBestPart = nil
+local cachedGunTool = nil
+
 local function setTarget(nt) currentTarget = nt end
 local function parsePlayerData(t)
     if type(t) == "table" then
@@ -817,6 +822,8 @@ if RoundStart and RoundStart:IsA("RemoteEvent") then
         table.clear(playerDeadStatus) 
         table.clear(lastPositions)
         MurdererDetectado = nil 
+        cachedPredictedPos = nil
+        cachedBestPart = nil
         parsePlayerData(a2) 
         parsePlayerData(a1)
     end))
@@ -976,7 +983,7 @@ local function getFloorHeight(targetHrp, targetChar)
 end
 
 -- ============================================================================
--- PREDICTION ENGINE (EXACT MATCH TO TOUCH FIX & UNIVERSAL AIM VERSION)
+-- PREDICTION ENGINE
 -- ============================================================================
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
@@ -1108,7 +1115,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 end
 
 -- ============================================================================
--- TRACERS & VISUALS
+-- TRACERS & PRE-CALCULATION LOOP
 -- ============================================================================
 local MinPredictionLine = Drawing.new("Line")
 MinPredictionLine.Color = color3RGB(4, 0, 220)
@@ -1137,8 +1144,15 @@ local worldToViewport = Camera.WorldToViewportPoint
 local renderConn = RunService.RenderStepped:Connect(function(dt)
     emaDeltaTime = emaDeltaTime + 0.2 * (dt - emaDeltaTime) 
 
+    local myChar = LocalPlayer.Character
+    if myChar then
+        cachedGunTool = myChar:FindFirstChild("Gun") or myChar:FindFirstChild("Revolver")
+    end
+
     local murderer = getMurderer()
     if not murderer or not murderer.Character then
+        cachedPredictedPos = nil
+        cachedBestPart = nil
         PredictionLine.Visible = false; MinPredictionLine.Visible = false; LeadTimeLine.Visible = false;
         return
     end
@@ -1147,16 +1161,18 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
     local visualPart, isBlocked = getSmartTargetPart(targetChar) 
     handLineIsBlocked = isBlocked
 
-    local myChar = LocalPlayer.Character
-    local rightHand = myChar and (myChar:FindFirstChild("RightHand") or myChar:FindFirstChild("Right Arm"))
+    local shotType = Flag("Sheriff_ShotType", "Normal")
+    if visualPart and (not isBlocked or shotType == "Piercer Bullet") then
+        local predPos, predNoY, minPredNoY = getPredictedPosition(targetChar, visualPart, dt)
+        cachedBestPart = visualPart
+        cachedPredictedPos = predPos
 
-    local tracersTable = Flag("Sheriff_Tracers", {})
-    local showRed = tracersTable["Tracer Prediction"] == true
-    local showBlue = tracersTable["Min Tracer Prediction"] == true
-    local showGreen = tracersTable["Lead Time"] == true
+        local rightHand = myChar and (myChar:FindFirstChild("RightHand") or myChar:FindFirstChild("Right Arm"))
+        local tracersTable = Flag("Sheriff_Tracers", {})
+        local showRed = tracersTable["Tracer Prediction"] == true
+        local showBlue = tracersTable["Min Tracer Prediction"] == true
+        local showGreen = tracersTable["Lead Time"] == true
 
-    if visualPart then
-        local _, predNoY, minPredNoY = getPredictedPosition(targetChar, visualPart, dt)
         local currentViewportSize = Camera.ViewportSize
         local screenOrigin = vec2New(currentViewportSize.X / 2, currentViewportSize.Y)
 
@@ -1184,7 +1200,6 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    local shotType = Flag("Sheriff_ShotType", "Normal")
                     LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
@@ -1193,44 +1208,64 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
             else LeadTimeLine.Visible = false end
         end
     else
+        cachedPredictedPos = nil
+        cachedBestPart = nil
         PredictionLine.Visible = false; MinPredictionLine.Visible = false; LeadTimeLine.Visible = false;
     end 
 end)
 KillerHub:AddTask(renderConn)
 
 -- ============================================================================
--- FIRING EXECUTION
+-- FIRING EXECUTION (ZERO-LAG INSTANT ENGINE + AUTO UNEQUIP)
 -- ============================================================================
 local function fireAtMurdererDirectly()
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-    if handLineIsBlocked and shotType ~= "Piercer Bullet" then return end
-
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
 
-    local murderer = getMurderer()
-    if murderer and murderer.Character then
-        local targetChar = murderer.Character
-        local bestPart, isBlocked = getSmartTargetPart(targetChar) 
-        if bestPart and (not isBlocked or shotType == "Piercer Bullet") then 
-            local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
-            if finalPredictedPos then
-                autoEquipWeapon()
-                local gun, _ = getGunLocation()
-                if gun and gun:FindFirstChild("Shoot") then
-                    local originCFrame = char.HumanoidRootPart.CFrame
-                    if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
-                        originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
-                    end
+    local targetPos = cachedPredictedPos
+    local shotType = Flag("Sheriff_ShotType", "Normal")
 
-                    if shotType == "Piercer Bullet" then
-                        local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
-                    end
-
-                    gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
-                end
+    if not targetPos then
+        local murderer = getMurderer()
+        if murderer and murderer.Character then
+            local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+            if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
+                targetPos = getPredictedPosition(murderer.Character, bestPart)
             end
+        end
+    end
+
+    if not targetPos then return end
+
+    local gun = cachedGunTool
+    if not gun then
+        autoEquipWeapon()
+        gun, _ = getGunLocation()
+        cachedGunTool = gun
+    end
+
+    if gun and gun:FindFirstChild("Shoot") then
+        local originCFrame = char.HumanoidRootPart.CFrame
+        if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
+            originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
+        end
+
+        if shotType == "Piercer Bullet" then
+            local dir = (targetPos - char.HumanoidRootPart.Position).Unit
+            originCFrame = cframeNew(targetPos - (dir * 0.5), targetPos)
+        end
+
+        -- Envío directo e inmediato del paquete de red
+        gun.Shoot:FireServer(originCFrame, cframeNew(targetPos))
+
+        -- 🎯 AUTO UNEQUIP LOGIC
+        if Flag("Sheriff_UnequipGun", false) then
+            task.defer(function()
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum:UnequipTools()
+                end
+            end)
         end
     end
 end
@@ -1248,7 +1283,7 @@ end)
 KillerHub:AddTask(inputConn)
 
 -- ============================================================================
--- TOUCH SHOOT BUTTON
+-- TOUCH SHOOT BUTTON (HIGH PRIORITY TOUCH EVENT)
 -- ============================================================================
 local POS_FILE = "KillerHub_ButtonPos.txt"
 
@@ -1348,8 +1383,11 @@ Label.ZIndex = ShootButton.ZIndex + 2; Label.Parent = ShootButton
 local dragging, dragInput, dragStart, startPos
 KillerHub:AddTask(ShootButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        TweenService:Create(GlowOverlay, TweenInfo.new(0.01, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.02}):Play()
         task.spawn(fireAtMurdererDirectly)
+        
+        task.defer(function()
+            TweenService:Create(GlowOverlay, TweenInfo.new(0.01, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0.02}):Play()
+        end)
         
         if not Flag("Sheriff_LockBtnPos", false) then
             dragging = true dragStart = input.Position startPos = ShootButton.Position
@@ -1411,30 +1449,27 @@ end
 if WeaponService then
     local oldGetTargetPosition = WeaponService.GetTargetPosition
     local oldGetMouseTargetCFrame = WeaponService.GetMouseTargetCFrame
-    local lastHookCallTime = os_clock()
 
-    local function getPredictedTargetCFrame(customDelta)
+    local function getPredictedTargetCFrame()
         local silentAim = Flag("Sheriff_SilentAim", false)
         if not silentAim then return nil end
 
-        local shotType = Flag("Sheriff_ShotType", "Normal")
         local useDetect = Flag("Sheriff_WeaponDetect", false)
+        if useDetect and not cachedGunTool then return nil end
 
-        local gun, _ = getGunLocation()
-        if useDetect and not gun then return nil end
+        if cachedPredictedPos then
+            return cframeNew(cachedPredictedPos)
+        end
 
         local murderer = getMurderer()
         if not murderer or not murderer.Character then return nil end
 
+        local shotType = Flag("Sheriff_ShotType", "Normal")
         local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
         if not bestPart then return nil end
         if isBlocked and shotType ~= "Piercer Bullet" then return nil end
 
-        local currentTime = os_clock()
-        local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
-        lastHookCallTime = currentTime
-
-        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart, dt)
+        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart)
         if finalPredictedPos then
             return cframeNew(finalPredictedPos)
         end
