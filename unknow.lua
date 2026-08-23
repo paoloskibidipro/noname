@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (TOUCH FIX & UNIVERSAL AIM)
+-- 👾 KILLER HUB | ENGINE V11.4 - SHERIFF SUITE (PIERCER BULLET + TOUCH FIX HYBRID)
 -- ============================================================================
 
 
@@ -976,7 +976,7 @@ local function getFloorHeight(targetHrp, targetChar)
 end
 
 -- ============================================================================
--- PREDICTION ENGINE
+-- PREDICTION ENGINE (EXACT MATCH TO TOUCH FIX & UNIVERSAL AIM VERSION)
 -- ============================================================================
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
@@ -985,9 +985,8 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local localHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp or not humanoid or humanoid.Health <= 0 or not localHrp then return nil, nil, nil end
 
-    local targetPosition = targetPart.Position
-
     local activeDT = customDelta or emaDeltaTime
+    local targetPosition = targetPart.Position
     local distance = (targetPosition - localHrp.Position).Magnitude
 
     local moveMag = humanoid.MoveDirection.Magnitude
@@ -1039,7 +1038,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local jumpPred = Flag("Sheriff_JumpPred", true)
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
-    local shotType = Flag("Sheriff_ShotType", "Normal")
 
     if prioritizePing then
         local rawMS = cachedPingValue * 1000
@@ -1070,11 +1068,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         local hScale = Flag("Sheriff_HScale", 100)
         local vScale = Flag("Sheriff_VScale", 100)
 
-        if shotType == "Piercer Bullet" then
-            if hScale <= 5 then hScale = 28 end
-            if vScale <= 5 then vScale = 28 end
-        end
-
         local manualHFactor = (hScale / 1000) * predictionWeight * PREDICTION_BOOST
         horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * manualHFactor
 
@@ -1100,11 +1093,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
     if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
-
-    if shotType == "Piercer Bullet" then
-        horizontalShift = horizontalShift * 0.33
-        verticalShift = verticalShift * 0.33
-    end
 
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
@@ -1197,7 +1185,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
 
                 if handOnScreen and predOnScreen then
                     local shotType = Flag("Sheriff_ShotType", "Normal")
-                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(35, 255, 35) or color3RGB(35, 255, 35)
+                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1236,11 +1224,8 @@ local function fireAtMurdererDirectly()
                     end
 
                     if shotType == "Piercer Bullet" then
-                        local hScale = Flag("Sheriff_HScale", 100)
-                        local dir = finalPredictedPos - char.HumanoidRootPart.Position
-                        dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
-                        local offsetDist = (hScale > 100) and 0.2 or 0.5
-                        originCFrame = cframeNew(finalPredictedPos - (dir * offsetDist), finalPredictedPos)
+                        local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
+                        originCFrame = cframeNew(finalPredictedPos - (dir * 0.5), finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1404,7 +1389,7 @@ KillerHub:AddTask(UserInputService.InputChanged:Connect(function(input)
 end))
 
 -- ============================================================================
--- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR & PIERCER BULLET HOOK)
+-- SILENT AIM HOOKS (WEAPONSERVICE INTERCEPTOR)
 -- ============================================================================
 local WeaponService = nil
 local ClientServices = ReplicatedStorage:FindFirstChild("ClientServices") or ReplicatedStorage:FindFirstChild("Services")
@@ -1423,43 +1408,44 @@ if not WeaponService then
     end
 end
 
-local lastHookCallTime = os_clock()
-
-local function getPredictedTargetPos(customDelta)
-    local silentAim = Flag("Sheriff_SilentAim", false)
-    if not silentAim then return nil end
-
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-    local useDetect = Flag("Sheriff_WeaponDetect", false)
-
-    if useDetect then
-        local gun, _ = getGunLocation()
-        if not gun then return nil end
-    end
-
-    local murderer = getMurderer()
-    if not murderer or not murderer.Character then return nil end
-
-    local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
-    if not bestPart then return nil end
-    if isBlocked and shotType ~= "Piercer Bullet" then return nil end
-
-    local currentTime = os_clock()
-    local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
-    lastHookCallTime = currentTime
-
-    return getPredictedPosition(murderer.Character, bestPart, dt)
-end
-
 if WeaponService then
     local oldGetTargetPosition = WeaponService.GetTargetPosition
     local oldGetMouseTargetCFrame = WeaponService.GetMouseTargetCFrame
+    local lastHookCallTime = os_clock()
+
+    local function getPredictedTargetCFrame(customDelta)
+        local silentAim = Flag("Sheriff_SilentAim", false)
+        if not silentAim then return nil end
+
+        local shotType = Flag("Sheriff_ShotType", "Normal")
+        local useDetect = Flag("Sheriff_WeaponDetect", false)
+
+        local gun, _ = getGunLocation()
+        if useDetect and not gun then return nil end
+
+        local murderer = getMurderer()
+        if not murderer or not murderer.Character then return nil end
+
+        local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
+        if not bestPart then return nil end
+        if isBlocked and shotType ~= "Piercer Bullet" then return nil end
+
+        local currentTime = os_clock()
+        local dt = customDelta or math_clamp(currentTime - lastHookCallTime, 0.008, 0.033)
+        lastHookCallTime = currentTime
+
+        local finalPredictedPos = getPredictedPosition(murderer.Character, bestPart, dt)
+        if finalPredictedPos then
+            return cframeNew(finalPredictedPos)
+        end
+        return nil
+    end
 
     if oldGetTargetPosition then
         WeaponService.GetTargetPosition = function(self, ...)
-            local targetPos = getPredictedTargetPos()
-            if targetPos then
-                return targetPos -- Devuelve Vector3 directamente para evitar error de CFrame
+            local targetCF = getPredictedTargetCFrame()
+            if targetCF then
+                return targetCF
             end
             return oldGetTargetPosition(self, ...)
         end
@@ -1467,54 +1453,15 @@ if WeaponService then
 
     if oldGetMouseTargetCFrame then
         WeaponService.GetMouseTargetCFrame = function(self, ...)
-            local targetPos = getPredictedTargetPos()
-            if targetPos then
-                return cframeNew(targetPos) -- Devuelve CFrame
+            local targetCF = getPredictedTargetCFrame()
+            if targetCF then
+                return targetCF
             end
             return oldGetMouseTargetCFrame(self, ...)
         end
     end
 end
 
--- Interceptor de disparos nativos para Silent Aim (Touch / Tap en Pantalla / Click)
-if hookmetamethod then
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod and getnamecallmethod()
-        if not checkcaller() and method and string.lower(method) == "fireserver" and self.Name == "Shoot" then
-            local silentAim = Flag("Sheriff_SilentAim", false)
-            if silentAim then
-                local shotType = Flag("Sheriff_ShotType", "Normal")
-                local murderer = getMurderer()
-                if murderer and murderer.Character then
-                    local bestPart, isBlocked = getSmartTargetPart(murderer.Character)
-                    local char = LocalPlayer.Character
-                    if bestPart and char and char:FindFirstChild("HumanoidRootPart") then
-                        if not isBlocked or shotType == "Piercer Bullet" then
-                            local targetPos = getPredictedTargetPos() or bestPart.Position
-                            local dir = targetPos - char.HumanoidRootPart.Position
-                            dir = (dir.Magnitude > 0.001) and dir.Unit or vec3New(0, 0, -1)
-                            
-                            if shotType == "Piercer Bullet" then
-                                local hScale = Flag("Sheriff_HScale", 100)
-                                local offsetDist = (hScale > 100) and 0.2 or 0.5
-                                local piercingOrigin = cframeNew(targetPos - (dir * offsetDist), targetPos)
-                                return oldNamecall(self, piercingOrigin, cframeNew(targetPos))
-                            else
-                                local charOrigin = char.HumanoidRootPart.CFrame
-                                if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then
-                                    charOrigin = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame
-                                end
-                                return oldNamecall(self, charOrigin, cframeNew(targetPos))
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        return oldNamecall(self, ...)
-    end)
-end
 
 
 -- ============================================================================
