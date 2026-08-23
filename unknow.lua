@@ -591,7 +591,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (INSTANT FIRE & AUTO UNEQUIP)
+-- 👾 KILLER HUB | ENGINE V11.5 - SHERIFF SUITE (LEGIT AUTO-EQUIP & AUTO-UNEQUIP)
 -- ============================================================================
 
 -- Prevent double execution
@@ -685,7 +685,7 @@ TabSheriff:CreateSection("Silent Aim")
 TabSheriff:CreateToggle("Sheriff_SilentAim", "Silent Aim", function() end)
 TabSheriff:CreateDropdown("Sheriff_ShotType", "Shot Type", {"Normal", "Piercer Bullet"}, function() end)
 TabSheriff:CreateKeybind("Sheriff_ShootKey", "Shoot Key", Enum.KeyCode.F, function() end)
-TabSheriff:CreateToggle("Sheriff_UnequipGun", "Unequip Gun", function() end) -- 🎯 NUEVA OPCIÓN
+TabSheriff:CreateToggle("Sheriff_UnequipGun", "Unequip Gun", function() end)
 TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
 
@@ -831,19 +831,6 @@ end
 
 local floorCastParams = RaycastParams.new()
 floorCastParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function autoEquipWeapon()
-    local character = LocalPlayer.Character
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if character and character:FindFirstChild("Humanoid") and backpack then
-        for _, item in pairs(backpack:GetChildren()) do
-            if isRangedWeapon(item) then 
-                character.Humanoid:EquipTool(item) 
-                break 
-            end
-        end
-    end
-end
 
 local function getGunLocation()
     local char = LocalPlayer.Character
@@ -1216,11 +1203,14 @@ end)
 KillerHub:AddTask(renderConn)
 
 -- ============================================================================
--- FIRING EXECUTION (ZERO-LAG INSTANT ENGINE + AUTO UNEQUIP)
+-- FIRING EXECUTION (LEGIT ENGINE + AUTO EQUIP / UNEQUIP)
 -- ============================================================================
 local function fireAtMurdererDirectly()
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return end
 
     local targetPos = cachedPredictedPos
     local shotType = Flag("Sheriff_ShotType", "Normal")
@@ -1237,14 +1227,15 @@ local function fireAtMurdererDirectly()
 
     if not targetPos then return end
 
-    local gun = cachedGunTool
-    if not gun then
-        autoEquipWeapon()
-        gun, _ = getGunLocation()
-        cachedGunTool = gun
+    local gun, location = getGunLocation()
+    if not gun then return end
+
+    if location ~= char then
+        hum:EquipTool(gun)
+        task.wait(0.1)
     end
 
-    if gun and gun:FindFirstChild("Shoot") then
+    if gun and gun.Parent == char and gun:FindFirstChild("Shoot") then
         local originCFrame = char.HumanoidRootPart.CFrame
         if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
             originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
@@ -1255,14 +1246,12 @@ local function fireAtMurdererDirectly()
             originCFrame = cframeNew(targetPos - (dir * 0.5), targetPos)
         end
 
-        -- Envío directo e inmediato del paquete de red
         gun.Shoot:FireServer(originCFrame, cframeNew(targetPos))
 
-        -- 🎯 AUTO UNEQUIP LOGIC
         if Flag("Sheriff_UnequipGun", false) then
-            task.defer(function()
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
+            task.spawn(function()
+                task.wait(0.25)
+                if char and hum and hum.Health > 0 then
                     hum:UnequipTools()
                 end
             end)
