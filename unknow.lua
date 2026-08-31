@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👻 KILLER HUB - MM2 ADVANCED VISUAL SUITE (ULTRA-OPTIMIZED V3.7)
+-- 👻 KILLER HUB - MM2 ADVANCED VISUAL SUITE (ENGLISH ULTRA-OPTIMIZED V4.0)
 -- ============================================================================
 
 local HttpService = game:GetService("HttpService")
@@ -13,7 +13,7 @@ local fileName = "KillerHubMM2VisualConfig.json"
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Localización/Cacheo para Máxima Optimización de FPS
+-- Fast Local Cache
 local pairs = pairs
 local ipairs = ipairs
 local type = type
@@ -29,9 +29,10 @@ local ColorSequence_new = ColorSequence.new
 local ColorSequenceKeypoint_new = ColorSequenceKeypoint.new
 local Instance_new = Instance.new
 local UDim2_new = UDim2.new
+local CFrame_new = CFrame.new
 local playersGetPlayers = Players.GetPlayers
 
--- Colores base del juego
+-- Default Game Roles Colors
 local DefaultColors = {
     Murderer = Color3_fromRGB(180, 55, 55),
     Sheriff  = Color3_fromRGB(35, 102, 204),
@@ -56,6 +57,7 @@ local Config = {
     NameRoles = {["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, ["Dead/None"] = false},
     
     Tracer = false,
+    TracerPosition = "Bottom Center", -- English Options: "Bottom Center", "Top Center", "Middle Left", "Middle Right", "Center Screen"
     TracerRoles = {["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, ["Dead/None"] = false},
 
     LimbChams = false,
@@ -84,7 +86,13 @@ local Config = {
 
         Skeleton = false,
         SkeletonColorActive = false,
-        SkeletonColorRGB = {255, 255, 255}
+        SkeletonColorRGB = {255, 255, 255},
+
+        CameraFOV = false,
+        CameraFOVValue = 70,
+
+        StretchedCam = false,
+        StretchedCamValue = 0.67
     },
 
     GunCham = false,    
@@ -135,10 +143,9 @@ if isfile and isfile(fileName) and readfile then
     end)
 end
 
--- [3] GRAPHICAL INTERFACE
+-- [3] GRAPHICAL INTERFACE (ENGLISH)
 local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/zpxlo0ev/LuXpaO/refs/heads/main/007900118.lua"))()
 
--- VISUALS TAB WITH PAGES
 local VisualsTab = KillerHub:CreateTab("Visuals", "rbxassetid://6523858394")
 local PagePlayers = VisualsTab:CreatePage("Players ESP", "Eye")
 local PageMyESP   = VisualsTab:CreatePage("My ESP", "Player")
@@ -152,44 +159,50 @@ local ToggleHighlight = PagePlayers:CreateToggleSlider("EspHighlight", "EspHighl
     function(val) Config.Highlight = val; saveConfig() end,
     function(val) Config.HighlightTrans = math_floor(val); saveConfig() end
 )
-PagePlayers:CreateMultiDropdown("HighlightFilters", "Highlight Filters", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
+PagePlayers:CreateMultiDropdown("HighlightFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.HighlightRoles) do Config.HighlightRoles[r] = flags[r] == true end; saveConfig()
 end)
-local DropHighlight = KillerHub.Elements["HighlightFilters"]
 
 local ToggleLimbChams = PagePlayers:CreateToggleSlider("EspLimbChams", "EspLimbChamsTrans", "Cham ESP", 0, 100, 
     function(val) Config.LimbChams = val; saveConfig() end,
     function(val) Config.LimbChamsTrans = math_floor(val); saveConfig() end
 )
-PagePlayers:CreateMultiDropdown("LimbChamsFilters", "Cham ESP Filters", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
+PagePlayers:CreateMultiDropdown("LimbChamsFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.LimbChamsRoles) do Config.LimbChamsRoles[r] = flags[r] == true end; saveConfig()
 end)
-local DropLimbChams = KillerHub.Elements["LimbChamsFilters"]
 
 local ToggleBox = PagePlayers:CreateToggle("EspBox", "Box ESP", function(val) Config.Box = val; saveConfig() end)
-PagePlayers:CreateMultiDropdown("BoxFilters", "Box Filters", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
+PagePlayers:CreateMultiDropdown("BoxFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.BoxRoles) do Config.BoxRoles[r] = flags[r] == true end; saveConfig()
 end)
-local DropBox = KillerHub.Elements["BoxFilters"]
 
 local ToggleName = PagePlayers:CreateToggle("EspName", "Name ESP", function(val) Config.Name = val; saveConfig() end)
-PagePlayers:CreateMultiDropdown("NameFilters", "Name Filters", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
+PagePlayers:CreateMultiDropdown("NameFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.NameRoles) do Config.NameRoles[r] = flags[r] == true end; saveConfig()
 end)
-local DropName = KillerHub.Elements["NameFilters"]
 
 local ToggleTracer = PagePlayers:CreateToggle("EspTracer", "Tracer ESP", function(val) Config.Tracer = val; saveConfig() end)
-PagePlayers:CreateMultiDropdown("TracerFilters", "Tracer Filters", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
+PagePlayers:CreateDropdown("EspTracerPos", "Tracer Position", {"Bottom Center", "Top Center", "Middle Left", "Middle Right", "Center Screen"}, function(sel)
+    Config.TracerPosition = sel
+    saveConfig()
+end, Config.TracerPosition or "Bottom Center")
+
+PagePlayers:CreateMultiDropdown("TracerFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.TracerRoles) do Config.TracerRoles[r] = flags[r] == true end; saveConfig()
 end)
-local DropTracer = KillerHub.Elements["TracerFilters"]
 
-PagePlayers:CreateSection("Gun ESP")
+local DropHighlight = KillerHub.Elements["HighlightFilters"]
+local DropLimbChams = KillerHub.Elements["LimbChamsFilters"]
+local DropBox       = KillerHub.Elements["BoxFilters"]
+local DropName      = KillerHub.Elements["NameFilters"]
+local DropTracer    = KillerHub.Elements["TracerFilters"]
+
+PagePlayers:CreateSection("Dropped Gun ESP")
 local ToggleGunCham = PagePlayers:CreateToggle("EspGunCham", "Gun Cham", function(val) Config.GunCham = val; saveConfig() end)
 local ToggleGunName = PagePlayers:CreateToggle("EspGunName", "Gun Name", function(val) Config.GunName = val; saveConfig() end)
 local ToggleGunTracer = PagePlayers:CreateToggle("EspGunTracer", "Gun Tracer", function(val) Config.GunTracer = val; saveConfig() end)
 
-PagePlayers:CreateSection("Modify Role Colors")
+PagePlayers:CreateSection("Role Colors Customization")
 local function createRoleColorPicker(roleKey, visualName)
     local defaultRGB = Config.CustomColorsRGB[roleKey]
     local defaultColor3 = Color3_fromRGB(defaultRGB[1], defaultRGB[2], defaultRGB[3])
@@ -219,7 +232,6 @@ end)
 local NameSizeSlider = PagePlayers:CreateSlider("EspNameSize", "Name Size", 10, 30, function(val) Config.NameSize = math_floor(val); saveConfig() end)
 local GunNameSizeSlider = PagePlayers:CreateSlider("EspGunNameSize", "Gun Name Size", 10, 30, function(val) Config.GunNameSize = math_floor(val); saveConfig() end)
 
-
 -- ==========================================
 -- PAGE 2: MY ESP
 -- ==========================================
@@ -237,7 +249,7 @@ local ToggleMyLimbChams = PageMyESP:CreateToggleSlider("MyEspLimbChams", "MyEspL
 
 local ToggleMyBox = PageMyESP:CreateToggle("MyEspBox", "Box ESP", function(val) Config.MyESP.Box = val; saveConfig() end)
 local ToggleMyName = PageMyESP:CreateToggle("MyEspName", "Name ESP", function(val) Config.MyESP.Name = val; saveConfig() end)
-local ToggleMySkeleton = PageMyESP:CreateToggle("MyEspSkeleton", "ESP Skeleton", function(val) Config.MyESP.Skeleton = val; saveConfig() end)
+local ToggleMySkeleton = PageMyESP:CreateToggle("MyEspSkeleton", "Skeleton ESP", function(val) Config.MyESP.Skeleton = val; saveConfig() end)
 
 PageMyESP:CreateSection("Self Custom Colors")
 
@@ -261,6 +273,26 @@ createMyESPColorPicker("Box", "Box")
 createMyESPColorPicker("Name", "Name")
 createMyESPColorPicker("Skeleton", "Skeleton")
 
+PageMyESP:CreateSection("Camera Features")
+
+local ToggleCamFOV = PageMyESP:CreateToggleSlider("MyEspCamFOV", "MyEspCamFOVVal", "Camera FOV", 30, 120,
+    function(val) 
+        Config.MyESP.CameraFOV = val
+        if not val then Camera.FieldOfView = 70 end
+        saveConfig() 
+    end,
+    function(val) 
+        Config.MyESP.CameraFOVValue = math_floor(val)
+        saveConfig() 
+    end,
+    Config.MyESP.CameraFOV, Config.MyESP.CameraFOVValue
+)
+
+local ToggleStretchedCam = PageMyESP:CreateToggleSlider("MyEspStretchedCam", "MyEspStretchedCamVal", "Stretched Camera", 1, 100,
+    function(val) Config.MyESP.StretchedCam = val; saveConfig() end,
+    function(val) Config.MyESP.StretchedCamValue = val / 100; saveConfig() end,
+    Config.MyESP.StretchedCam, math_floor((Config.MyESP.StretchedCamValue or 0.67) * 100)
+)
 
 -- [4] APPLY SAVED CONFIGURATIONS SAFELY
 ToggleName:Set(Config.Name)
@@ -278,7 +310,6 @@ if ToggleLimbChams then
     ToggleLimbChams:SetSlider(Config.LimbChamsTrans)
 end
 
--- Apply My ESP Saved Controls
 ToggleMyBox:Set(Config.MyESP.Box)
 ToggleMyName:Set(Config.MyESP.Name)
 ToggleMySkeleton:Set(Config.MyESP.Skeleton)
@@ -291,7 +322,6 @@ if ToggleMyLimbChams then
     ToggleMyLimbChams:SetSlider(Config.MyESP.LimbChamsTrans)
 end
 
--- Sync My ESP Color Pickers
 local myFeatures = {"Highlight", "LimbChams", "Box", "Name", "Skeleton"}
 for _, fKey in ipairs(myFeatures) do
     local toggleInstance = getgenv().KillerHub and getgenv().KillerHub.Flags and getgenv().KillerHub.Flags["CP_Active_My_" .. fKey]
@@ -310,16 +340,14 @@ for roleKey, _ in pairs(Config.CustomColorsActive) do
     if toggleInstance and toggleInstance.Set then toggleInstance:Set(Config.CustomColorsActive[roleKey]) end
 end
 
-
 -- ============================================================================
--- 🧠 CORE ENGINE (HYPER-OPTIMIZED WITH 1.9PX BALANCED GRADIENT CORNER BOX)
+-- 🧠 CORE ENGINE (ULTRA-OPTIMIZED V4.0)
 -- ============================================================================
 
 local playerRoles = {} 
 local playerDeadStatus = {} 
 local currentGunDrop = nil 
 
--- TRACER ENGINE
 local GunDrawingLine = Drawing.new("Line")
 GunDrawingLine.Thickness = 1
 GunDrawingLine.Transparency = 1
@@ -350,7 +378,7 @@ local R15Bones = {
     {"LeftLowerLeg", "LeftFoot"},
     {"LowerTorso", "RightUpperLeg"},
     {"RightUpperLeg", "RightLowerLeg"},
-    {"RightLowerLeg", "RightFoot"}
+    {"RightUpperLeg", "RightFoot"}
 }
 
 local function clearMySkeleton()
@@ -429,7 +457,6 @@ local function getPlayerColorAndStatus(player)
     return getRoleColor("Innocent", DefaultColors.Innocent), "Innocent"
 end
 
--- HELPER FOR MY ESP INDIVIDUAL FEATURE COLORS
 local function getMyFeatureColor(featureKey)
     local activeKey = featureKey .. "ColorActive"
     local rgbKey = featureKey .. "ColorRGB"
@@ -515,7 +542,7 @@ local function updatePlayerESP(player)
         if limbFolder then limbFolder:Destroy() end
     end
 
-    -- BOX 2D ESP (STANDARD FULL BOX)
+    -- BOX 2D ESP
     local box = root:FindFirstChild("KH_2DBox")
     if Config.Box and Config.BoxRoles[currentStatus] == true then
         if not box then
@@ -563,14 +590,12 @@ local function updatePlayerESP(player)
     end
 end
 
--- MY ESP UPDATE FUNCTION
 local function updateMyESP()
     local char = LocalPlayer.Character
     if not char then return end
     local root = char:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
-    -- 1. My LimbChams
     local limbFolder = char:FindFirstChild("KH_MyLimbChams")
     if Config.MyESP.LimbChams then
         local chamColor = getMyFeatureColor("LimbChams")
@@ -601,7 +626,6 @@ local function updateMyESP()
         if limbFolder then limbFolder:Destroy() end
     end
 
-    -- 2. My Box ESP (CORNER BRACKET WITH 1.9PX THICKNESS & SOFT GRADIENT)
     local box = root:FindFirstChild("KH_My2DBox")
     if Config.MyESP.Box then
         local boxColor = getMyFeatureColor("Box")
@@ -617,8 +641,8 @@ local function updateMyESP()
             mainFrame.BackgroundTransparency = 1
             mainFrame.Parent = box
 
-            local thickOffset = 2 -- Grosor fijo ajustado a 1.9px
-            local cSize = 0.22 -- Tamaño de las esquinas
+            local thickOffset = 2
+            local cSize = 0.22
 
             local function addCornerSegment(name, pos, size, gradRotation)
                 local frame = Instance_new("Frame")
@@ -635,19 +659,12 @@ local function updateMyESP()
                 return frame
             end
 
-            -- Top Left
             addCornerSegment("TL_H", UDim2_new(0, 0, 0, 0), UDim2_new(cSize, 0, 0, thickOffset), 0)
             addCornerSegment("TL_V", UDim2_new(0, 0, 0, 0), UDim2_new(0, thickOffset, cSize, 0), 90)
-
-            -- Top Right
             addCornerSegment("TR_H", UDim2_new(1 - cSize, 0, 0, 0), UDim2_new(cSize, 0, 0, thickOffset), 180)
             addCornerSegment("TR_V", UDim2_new(1, -thickOffset, 0, 0), UDim2_new(0, thickOffset, cSize, 0), 90)
-
-            -- Bottom Left
             addCornerSegment("BL_H", UDim2_new(0, 0, 1, -thickOffset), UDim2_new(cSize, 0, 0, thickOffset), 0)
             addCornerSegment("BL_V", UDim2_new(0, 0, 1 - cSize, 0), UDim2_new(0, thickOffset, cSize, 0), 270)
-
-            -- Bottom Right
             addCornerSegment("BR_H", UDim2_new(1 - cSize, 0, 1, -thickOffset), UDim2_new(cSize, 0, 0, thickOffset), 180)
             addCornerSegment("BR_V", UDim2_new(1, -thickOffset, 1 - cSize, 0), UDim2_new(0, thickOffset, cSize, 0), 270)
 
@@ -657,7 +674,6 @@ local function updateMyESP()
 
         local main = box:FindFirstChild("MainFrame")
         if main then
-            -- El color personalizado domina el 70% de la línea y se difumina a negro solo al final (30%)
             local gradColorSeq = ColorSequence_new({
                 ColorSequenceKeypoint_new(0, boxColor),
                 ColorSequenceKeypoint_new(0.7, boxColor),
@@ -674,7 +690,6 @@ local function updateMyESP()
         if box then box:Destroy() end
     end
 
-    -- 3. My Name ESP
     local nameTag = root:FindFirstChild("KH_MyName")
     if Config.MyESP.Name then
         local nameColor = getMyFeatureColor("Name")
@@ -691,7 +706,6 @@ local function updateMyESP()
         if nameTag then nameTag:Destroy() end
     end
 
-    -- 4. My Highlight
     local hl = char:FindFirstChild("KH_MyHighlight")
     if Config.MyESP.Highlight then
         local hlColor = getMyFeatureColor("Highlight")
@@ -708,7 +722,6 @@ local function updateMyESP()
     end
 end
 
--- GROUND GUN ESP
 local function checkGunInstance(part)
     if part and part.Name == "GunDrop" and part:IsA("BasePart") then currentGunDrop = part end
 end
@@ -721,7 +734,6 @@ local function updateGunESP()
 
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if currentGunDrop and currentGunDrop:IsA("BasePart") and myRoot then
-        
         local distance = (myRoot.Position - currentGunDrop.Position).Magnitude
         if distance > Config.MaxDistance then
             local hl = currentGunDrop:FindFirstChild("KH_GunHighlight")
@@ -755,7 +767,6 @@ local function updateGunESP()
     end
 end
 
--- REMOTE RETRIEVING
 local PlayerDataChanged = ReplicatedStorage:FindFirstChild("PlayerDataChanged", true)
 local RoundStart = ReplicatedStorage:FindFirstChild("RoundStart", true)
 
@@ -783,7 +794,10 @@ if RoundOver and RoundOver:IsA("RemoteEvent") then
     RoundOver.OnClientEvent:Connect(function()
         table.clear(playerRoles); table.clear(playerDeadStatus); currentGunDrop = nil
         local allPlayers = playersGetPlayers(Players)
-        for i = 1, #allPlayers do pcall(function() clearPlayerESP(allPlayers[i].Character) end) end
+        for i = 1, #allPlayers do 
+            local plr = allPlayers[i]
+            if plr and plr.Character then clearPlayerESP(plr.Character) end 
+        end
     end)
 end
 
@@ -797,16 +811,46 @@ task.spawn(function()
     while true do
         local allPlayers = playersGetPlayers(Players)
         for i = 1, #allPlayers do
-            pcall(updatePlayerESP, allPlayers[i])
+            local plr = allPlayers[i]
+            if plr and plr.Character then
+                updatePlayerESP(plr)
+            end
         end
-        pcall(updateMyESP)
-        pcall(updateGunESP)
-        task.wait(0.1)
+        updateMyESP()
+        updateGunESP()
+        task.wait(0.15)
     end
 end)
 
--- RENDER STEPPED (SKELETON & TRACERS ENGINE)
+-- DYNAMIC TRACER ORIGIN RESOLVER (CENTER-LEFT, CENTER-RIGHT & TOP-CENTER ADDED)
+local function getTracerOriginPoint(viewportSize, mode)
+    if mode == "Top Center" then
+        return Vector2_new(viewportSize.X / 2, 0)
+    elseif mode == "Middle Left" then
+        return Vector2_new(0, viewportSize.Y / 2)
+    elseif mode == "Middle Right" then
+        return Vector2_new(viewportSize.X, viewportSize.Y / 2)
+    elseif mode == "Center Screen" then
+        return Vector2_new(viewportSize.X / 2, viewportSize.Y / 2)
+    end
+    -- Default: Bottom Center
+    return Vector2_new(viewportSize.X / 2, viewportSize.Y)
+end
+
+-- RENDER STEPPED (SKELETON, TRACERS & CAMERA ENGINE)
 RunService.RenderStepped:Connect(function()
+    if Config.MyESP.CameraFOV then
+        local targetFOV = Config.MyESP.CameraFOVValue or 70
+        if Camera.FieldOfView ~= targetFOV then
+            Camera.FieldOfView = targetFOV
+        end
+    end
+
+    if Config.MyESP.StretchedCam then
+        local stretchFactor = Config.MyESP.StretchedCamValue or 0.67
+        Camera.CFrame = Camera.CFrame * CFrame_new(0, 0, 0, 1, 0, 0, 0, stretchFactor, 0, 0, 0, 1)
+    end
+
     local myChar = LocalPlayer.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
     
@@ -863,7 +907,7 @@ RunService.RenderStepped:Connect(function()
     -- 2. TRACERS FOR OTHER PLAYERS & GUN
     if myRoot then
         local viewportSize = Camera.ViewportSize
-        local screenBottom = Vector2_new(viewportSize.X / 2, viewportSize.Y)
+        local tracerOrigin = getTracerOriginPoint(viewportSize, Config.TracerPosition)
         
         local allPlayers = playersGetPlayers(Players)
         for i = 1, #allPlayers do
@@ -881,7 +925,7 @@ RunService.RenderStepped:Connect(function()
                             local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
                             if onScreen then
                                 if not line then line = getTracerLine(player) end
-                                line.From = screenBottom
+                                line.From = tracerOrigin
                                 line.To = Vector2_new(screenPos.X, screenPos.Y)
                                 line.Color = color
                                 line.Visible = true
@@ -906,7 +950,7 @@ RunService.RenderStepped:Connect(function()
             
             if onScreen and distance <= Config.MaxDistance then
                 local gunColor = getRoleColor("GunDrop", DefaultColors.GunDrop)
-                GunDrawingLine.From = screenBottom
+                GunDrawingLine.From = tracerOrigin
                 GunDrawingLine.To = Vector2_new(screenPos.X, screenPos.Y)
                 GunDrawingLine.Color = gunColor
                 GunDrawingLine.Visible = true
@@ -932,6 +976,7 @@ CoreGui.ChildRemoved:Connect(function(child)
         clearMySkeleton()
     end
 end)
+
 
 -- ============================================================================
 -- 👾 KILLER HUB | ENGINE V14.0 - SHERIFF SUITE (PRO PREDICTION & STABILIZED)
