@@ -979,8 +979,9 @@ end)
 
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V14.0 - SHERIFF SUITE (PRO PREDICTION & STABILIZED)
+-- 👾 KILLER HUB | ENGINE V11.6 - SHERIFF SUITE (OPTIMIZED PIERCER FIX)
 -- ============================================================================
+
 
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
@@ -1008,7 +1009,6 @@ local math_clamp = math.clamp
 local math_abs = math.abs
 local math_pow = math.pow
 local math_min = math.min
-local math_max = math.max
 local math_floor = math.floor
 local vec2New = Vector2.new
 local vec3New = Vector3.new
@@ -1019,6 +1019,7 @@ local os_clock = os.clock
 
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
+local PREDICTION_BOOST = 1.10
 
 if _G.KillerHubLines then
     for _, line in pairs(_G.KillerHubLines) do pcall(function() line:Remove() end) end
@@ -1031,7 +1032,7 @@ if oldGui then oldGui:Destroy() end
 -- Real-time Ping Reader
 local cachedPingValue = 0.05
 local pingTask = task.spawn(function()
-    while task.wait(0.15) do
+    while task.wait(0.2) do
         local currentPing = nil
         pcall(function()
             if Stats and Stats.Network and Stats.Network:FindFirstChild("ServerStatsItem") then
@@ -1077,7 +1078,7 @@ TabSheriff:CreateToggle("Sheriff_PrioritizePing", "Prioritize Ping", function(es
             while Flag("Sheriff_PrioritizePing", false) do
                 local currentMS = math_floor(cachedPingValue * 1000)
                 if sliderPing and sliderPing.Set then sliderPing:Set(currentMS) end
-                task.wait(0.25)
+                task.wait(0.3)
             end
         end)
     end
@@ -1148,14 +1149,12 @@ KillerHub:AddTask(visTask)
 
 local MurdererDetectado = nil
 local smoothedVelocity = VECTOR_ZERO
-local previousVelocity = VECTOR_ZERO
 local lastTargetChar = nil
 local emaDeltaTime = 0.016 
 local playerRoles = {}
 local playerDeadStatus = {}
 local currentTarget = nil
 local lastPositions = {} 
-local targetVisibleTime = {} -- Histeresis para confirmación de pared
 local handLineIsBlocked = false 
 local lastScanTime = 0
 
@@ -1182,7 +1181,6 @@ if RoundStart and RoundStart:IsA("RemoteEvent") then
         table.clear(playerRoles) 
         table.clear(playerDeadStatus) 
         table.clear(lastPositions)
-        table.clear(targetVisibleTime)
         MurdererDetectado = nil 
         parsePlayerData(a2) 
         parsePlayerData(a1)
@@ -1279,11 +1277,6 @@ local function updateIgnoreListCache()
     table.clear(cachedIgnoreList)
     if LocalPlayer.Character then table.insert(cachedIgnoreList, LocalPlayer.Character) end
     table.insert(cachedIgnoreList, Camera)
-    local allPlayers = Players:GetPlayers()
-    for i = 1, #allPlayers do 
-        local pChar = allPlayers[i].Character
-        if pChar then table.insert(cachedIgnoreList, pChar) end 
-    end
 end
 
 KillerHub:AddTask(Players.PlayerAdded:Connect(updateIgnoreListCache))
@@ -1291,17 +1284,61 @@ KillerHub:AddTask(Players.PlayerRemoving:Connect(updateIgnoreListCache))
 KillerHub:AddTask(LocalPlayer.CharacterAdded:Connect(updateIgnoreListCache))
 updateIgnoreListCache()
 
+local function isGunBlocked(targetPos, targetChar)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return true end
+
+    local origin = char.HumanoidRootPart.Position
+    if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then
+        origin = char.HumanoidRootPart.GunRaycastAttachment.WorldPosition
+    else
+        local rightHand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
+        if rightHand then origin = rightHand.Position end
+    end
+
+    local direction = targetPos - origin
+    if direction.Magnitude < 0.1 then return false end
+
+    local ignoreListTemp = table.clone(cachedIgnoreList)
+    local currentOrigin = origin
+    local rayPasses = 0
+
+    while direction.Magnitude > 0.1 and rayPasses < 5 do
+        rayPasses = rayPasses + 1
+        mapCastParams.FilterDescendantsInstances = ignoreListTemp
+        local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
+        if not ray then return false end
+
+        local hitInst = ray.Instance
+        if targetChar and hitInst:IsDescendantOf(targetChar) then
+            return false
+        end
+
+        if hitInst and hitInst.CanCollide and hitInst.Transparency < 0.8 then
+            return true
+        else
+            table.insert(ignoreListTemp, hitInst)
+            currentOrigin = ray.Position + (direction.Unit * 0.05)
+            direction = targetPos - currentOrigin
+        end
+    end
+
+    return false
+end
+
 local function isStrictlyVisible(targetChar, targetPart)
     if not targetChar or not targetPart then return false end
     local origin = Camera.CFrame.Position
     local targetPos = targetPart.Position
-    local direction = targetPos - origin
     
+    if isGunBlocked(targetPos, targetChar) then return false end
+
+    local direction = targetPos - origin
     local tempIgnore = table.clone(cachedIgnoreList)
     local currentOrigin = origin
     local rayPasses = 0
 
-    while direction.Magnitude > 0.1 and rayPasses < 4 do
+    while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
         mapCastParams.FilterDescendantsInstances = tempIgnore
         local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
@@ -1326,7 +1363,7 @@ end
 
 local function getSmartTargetPart(targetChar)
     if not targetChar then return nil, true end
-    local hrp = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso")
+    local hrp = targetChar:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil, true end
     
     local wallCheck = Flag("Sheriff_WallCheck", true)
@@ -1339,43 +1376,38 @@ local function getSmartTargetPart(targetChar)
     local origin = Camera.CFrame.Position
     local ignoreListTemp = table.clone(cachedIgnoreList)
 
-    local partsToScan = {
-        hrp,
-        targetChar:FindFirstChild("Head"),
-        targetChar:FindFirstChild("LeftHand") or targetChar:FindFirstChild("Left Arm"),
-        targetChar:FindFirstChild("RightHand") or targetChar:FindFirstChild("Right Arm")
-    }
-    
-    for i = 1, #partsToScan do
-        local part = partsToScan[i]
-        if part then
-            local targetPos = part.Position
-            local currentOrigin = origin
-            local direction = targetPos - currentOrigin
-            local blocked = false
-            local rayPasses = 0
+    local targetPos = hrp.Position
+    local currentOrigin = origin
+    local direction = targetPos - currentOrigin
+    local blocked = false
+    local rayPasses = 0
 
-            while direction.Magnitude > 0.1 and rayPasses < 5 do
-                rayPasses = rayPasses + 1
-                mapCastParams.FilterDescendantsInstances = ignoreListTemp
-                local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
-                if not ray then break end
+    while direction.Magnitude > 0.1 and rayPasses < 5 do
+        rayPasses = rayPasses + 1
+        mapCastParams.FilterDescendantsInstances = ignoreListTemp
+        local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
+        if not ray then break end
 
-                local hitInst = ray.Instance
-                if hitInst and hitInst.CanCollide and hitInst.Transparency < 0.8 then
-                    blocked = true
-                    break 
-                else
-                    table.insert(ignoreListTemp, hitInst)
-                    currentOrigin = ray.Position + (direction.Unit * 0.05)
-                    direction = targetPos - currentOrigin
-                end
-            end
+        local hitInst = ray.Instance
+        if hitInst and hitInst:IsDescendantOf(targetChar) then
+            break
+        end
 
-            if not blocked then return part, false end
+        if hitInst and hitInst.CanCollide and hitInst.Transparency < 0.8 then
+            blocked = true
+            break 
+        else
+            table.insert(ignoreListTemp, hitInst)
+            currentOrigin = ray.Position + (direction.Unit * 0.05)
+            direction = targetPos - currentOrigin
         end
     end
-    return hrp, true
+
+    if not blocked and isGunBlocked(targetPos, targetChar) then
+        blocked = true
+    end
+
+    return hrp, blocked
 end
 
 local function getFloorHeight(targetHrp, targetChar)
@@ -1385,18 +1417,19 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Ultimate High Ping & Adaptive Engine (Anti-Overshoot + Speed Cap + Frame Spike Protection)
+-- Prediction Engine (Optimizado para distancias reales y Piercer)
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
     local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
-    local localHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp or not humanoid or humanoid.Health <= 0 or not localHrp then return nil, nil, nil end
+    if not hrp or not humanoid or humanoid.Health <= 0 then return nil, nil, nil end
 
-    -- Safe Frame-Drop Clamp
-    local activeDT = math_clamp(customDelta or emaDeltaTime, 0.008, 0.033)
+    local activeDT = customDelta or emaDeltaTime
     local targetPosition = targetPart.Position
-    local distance = (targetPosition - localHrp.Position).Magnitude
+
+    -- Usa la cámara como referencia de distancia para no romper cálculos estando -200,000 bajo tierra
+    local referencePos = Camera and Camera.CFrame.Position or targetPosition
+    local distance = (targetPosition - referencePos).Magnitude
 
     local moveMag = humanoid.MoveDirection.Magnitude
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
@@ -1426,39 +1459,18 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local predictionWeight = distance <= closeZone and 0 or 1
 
     if lastTargetChar ~= targetChar then
-        smoothedVelocity = rawVelocity
-        previousVelocity = rawVelocity
+        smoothedVelocity = rawVelocity 
         lastTargetChar = targetChar
     end
 
     local isStopping = (moveMag < 0.1 and rawVelocity.Magnitude < 2)
     local isStarting = (moveMag > 0.1 and smoothedVelocity.Magnitude < 2)
 
-    -- Dynamic Smoothing based on Ping
-    local pingSeconds = cachedPingValue
-    local vSmoothAlpha = 0.35 + math_clamp((pingSeconds - 0.08) * 0.4, 0, 0.45)
+    local vSmoothAlpha = 0.35
+    if isStopping then vSmoothAlpha = 0.80
+    elseif isStarting then vSmoothAlpha = 0.20
+    elseif Flag("Sheriff_InertialStab", true) then vSmoothAlpha = math_clamp(14 * activeDT, 0.18, 0.50) end
     
-    if isStopping then vSmoothAlpha = 0.85
-    elseif isStarting then vSmoothAlpha = 0.15
-    elseif Flag("Sheriff_InertialStab", true) then vSmoothAlpha = math_clamp(14 * activeDT, 0.15, 0.60) end
-
-    -- Anti-Juke / Anti-Zigzag Protection
-    local currentVelH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
-    local prevVelH = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z)
-    if currentVelH.Magnitude > 2 and prevVelH.Magnitude > 2 then
-        local dotProduct = currentVelH.Unit:Dot(prevVelH.Unit)
-        if dotProduct < 0.3 then
-            vSmoothAlpha = 0.90
-            predictionWeight = predictionWeight * 0.4
-        end
-    end
-
-    -- Anti-Jitter Filter
-    if moveMag > 0.1 and actualPhysicsH.Magnitude < 3.5 then
-        predictionWeight = predictionWeight * 0.20
-    end
-
-    previousVelocity = smoothedVelocity
     smoothedVelocity = smoothedVelocity:Lerp(rawVelocity, vSmoothAlpha)
     if isStopping and smoothedVelocity.Magnitude < 0.3 then smoothedVelocity = VECTOR_ZERO end
 
@@ -1468,76 +1480,46 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local prioritizePing = Flag("Sheriff_PrioritizePing", false)
     local vScale = Flag("Sheriff_VScale", 100)
     local hScale = Flag("Sheriff_HScale", 100)
-    local shotType = Flag("Sheriff_ShotType", "Normal")
-
-    -- Exponential Latency Ramp for high ping (>150ms)
-    local projTime = (distance / 300)
-    local totalNetworkTime = pingSeconds + projTime
-    
-    local highPingRamp = 1.0
-    if pingSeconds > 0.11 then
-        highPingRamp = 1.0 + math_pow((pingSeconds - 0.11) * 6.5, 1.45)
-    end
 
     local effectiveHLatency = 0
     local effectiveVLatency = 0
 
     if prioritizePing then
-        local baseMS = totalNetworkTime * 1000
-        local dynamicScale = (baseMS * 1.08) * highPingRamp
-        dynamicScale = math_clamp(dynamicScale, 70, 260)
+        local rawMS = cachedPingValue * 1000
+        local autoScale = 90 + (rawMS * 0.6)
+        autoScale = math_min(autoScale, 170)
 
-        effectiveHLatency = (dynamicScale / 1000)
-        effectiveVLatency = (math_min(dynamicScale, 110) / 1000)
+        effectiveHLatency = (autoScale / 1000) * PREDICTION_BOOST
+        local autoVScale = math_min(autoScale, 80)
+        effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
     else
-        effectiveHLatency = ((hScale / 1000) * highPingRamp)
-        effectiveVLatency = (math_min(vScale, 100) / 1000)
+        effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
+        local cappedVScale = math_min(vScale, 80)
+        effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
-    if shotType == "Piercer Bullet" then
-        if hScale == 0 then
-            effectiveHLatency = (32 / 1000) * highPingRamp
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
-        elseif hScale > 100 then
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight * 0.95
-        else
-            horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight * 0.35
-        end
-    else
-        horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
-    end
+    -- Predicción horizontal limpia y precisa para Piercer Bullet y Normal
+    horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
 
-    -- ⚡ IMPROVEMENT 1: Anti-Overshoot / Deceleration Physics Engine
-    local currentAcceleration = (smoothedVelocity - previousVelocity) / activeDT
-    local horizVel = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z)
-    if horizVel.Magnitude > 1 and currentAcceleration.Magnitude > 1 then
-        local decelDot = currentAcceleration:Dot(horizVel.Unit)
-        if decelDot < -5 then 
-            -- Target is actively braking; reduce prediction shift to avoid shooting ahead
-            local decelMultiplier = math_clamp(1 + (decelDot / 45), 0.15, 1.0)
-            horizontalShift = horizontalShift * decelMultiplier
-        end
-    end
-
-    -- ⚡ IMPROVEMENT 2: Physical WalkSpeed Hard Cap
-    local maxPhysicalDistance = (walkSpeed * totalNetworkTime) * 1.15
-    if horizontalShift.Magnitude > maxPhysicalDistance then
-        horizontalShift = horizontalShift.Unit * maxPhysicalDistance
-    end
-
-    -- Advanced Jump & Vertical Prediction
     if vScale > 0 then
         local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
         if isAir or isStairMovement then
-            local adaptiveYFactor = math_clamp((distance - closeZone) / 10, 0, 1)
+            local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
             local vFactor = effectiveVLatency * adaptiveYFactor
 
             if isAir then
-                local g = workspace_Gravity
-                local predictedY = (calculatedVelY * vFactor) - (0.5 * g * math_pow(vFactor, 2))
-                verticalShift = vec3New(0, predictedY, 0)
+                if calculatedVelY < -0.5 then
+                    local fallingYFactor = calculatedVelY * 0.15
+                    local gravityEffect = 0.05 * workspace_Gravity * math_pow(vFactor, 2)
+                    local pY = (fallingYFactor * vFactor) - gravityEffect
+                    verticalShift = vec3New(0, pY, 0)
+                else
+                    local gravityEffect = 0.5 * workspace_Gravity * math_pow(vFactor, 2)
+                    local pY = (calculatedVelY * vFactor) - gravityEffect
+                    verticalShift = vec3New(0, pY, 0)
+                end
             elseif isStairMovement then
                 local pY = calculatedVelY * vFactor
                 verticalShift = vec3New(0, pY, 0)
@@ -1545,7 +1527,8 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         end
     end
 
-    if verticalShift.Magnitude > 7.0 then verticalShift = verticalShift.Unit * 7.0 end
+    if horizontalShift.Magnitude > 8.5 then horizontalShift = horizontalShift.Unit * 8.5 end
+    if verticalShift.Magnitude > 6.0 then verticalShift = verticalShift.Unit * 6.0 end
 
     local finalPredNoY = vec3New(targetPosition.X + horizontalShift.X, targetPosition.Y, targetPosition.Z + horizontalShift.Z)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
@@ -1626,7 +1609,8 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    LeadTimeLine.Color = color3RGB(35, 255, 35)
+                    local shotType = Flag("Sheriff_ShotType", "Normal")
+                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1645,7 +1629,7 @@ local function fireAtMurdererDirectly()
     if handLineIsBlocked and shotType ~= "Piercer Bullet" then return end
 
     local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end 
+    if not char then return end 
 
     local murderer = getMurderer()
     if murderer and murderer.Character then
@@ -1654,17 +1638,36 @@ local function fireAtMurdererDirectly()
         if bestPart and (not isBlocked or shotType == "Piercer Bullet") then 
             local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
             if finalPredictedPos then
+                if shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
+                    return
+                end
+
                 autoEquipWeapon()
                 local gun, _ = getGunLocation()
                 if gun and gun:FindFirstChild("Shoot") then
-                    local originCFrame = char.HumanoidRootPart.CFrame
-                    if char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
+                    local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
+                    if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
                         originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
                     end
 
+                    -- Piercer Bullet: Siempre dispara 100% horizontal a la altura del torso objetivo
                     if shotType == "Piercer Bullet" then
-                        local dir = (finalPredictedPos - char.HumanoidRootPart.Position).Unit
-                        originCFrame = cframeNew(finalPredictedPos - (dir * 1.3), finalPredictedPos)
+                        local camLook = Camera.CFrame.LookVector
+                        local horizDir = vec3New(camLook.X, 0, camLook.Z)
+                        
+                        if horizDir.Magnitude < 0.01 then
+                            local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+                            if hrp then horizDir = vec3New(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) end
+                        end
+                        
+                        if horizDir.Magnitude < 0.01 then
+                            horizDir = vec3New(1, 0, 0)
+                        else
+                            horizDir = horizDir.Unit
+                        end
+
+                        local spawnOrigin = finalPredictedPos - (horizDir * 1.0)
+                        originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
                     end
 
                     gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
@@ -1674,10 +1677,13 @@ local function fireAtMurdererDirectly()
     end
 end
 
--- ⚡ IMPROVEMENT 3: Auto Shoot Engine with Sustained Target Confirmation Hysteresis (Anti-False-Positives)
+-- Auto Shoot Engine
 local lastAutoShootTime = 0
-local autoShootConn = RunService.RenderStepped:Connect(function(dt)
+local autoShootConn = RunService.RenderStepped:Connect(function()
     if not Flag("Sheriff_AutoShoot", false) then return end
+    
+    local now = os_clock()
+    if now - lastAutoShootTime < 0.18 then return end
 
     local murderer = getMurderer()
     if not murderer or not murderer.Character then return end
@@ -1689,30 +1695,14 @@ local autoShootConn = RunService.RenderStepped:Connect(function(dt)
         for _, item in pairs(targetChar:GetChildren()) do
             if isMeleeWeapon(item) then knifeEquipped = true break end
         end
-        if not knifeEquipped then 
-            targetVisibleTime[targetChar] = 0
-            return 
-        end
+        if not knifeEquipped then return end
     end
 
     local bestPart, _ = getSmartTargetPart(targetChar)
-    local isVisible = bestPart and isStrictlyVisible(targetChar, bestPart)
-
-    if isVisible then
-        targetVisibleTime[targetChar] = (targetVisibleTime[targetChar] or 0) + dt
-    else
-        targetVisibleTime[targetChar] = 0
-        return
+    if bestPart and isStrictlyVisible(targetChar, bestPart) then
+        lastAutoShootTime = now
+        fireAtMurdererDirectly()
     end
-
-    -- Requires continuous visibility of at least 0.04 seconds to prevent wall shooting on corner peeking
-    if (targetVisibleTime[targetChar] or 0) < 0.04 then return end
-
-    local now = os_clock()
-    if now - lastAutoShootTime < 0.18 then return end
-
-    lastAutoShootTime = now
-    fireAtMurdererDirectly()
 end)
 KillerHub:AddTask(autoShootConn)
 
