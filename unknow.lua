@@ -978,7 +978,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (FALL PRED & ROLE DETECT)
+-- 👾 KILLER HUB | ENGINE V12.3 - SHERIFF SUITE (STABLE SHOOT & GREEN TRACER)
 -- ============================================================================
 
 
@@ -1240,7 +1240,8 @@ local function autoEquipWeapon()
     if character and character:FindFirstChild("Humanoid") and backpack then
         for _, item in pairs(backpack:GetChildren()) do
             if isRangedWeapon(item) then 
-                character.Humanoid:EquipTool(item) 
+                -- Equipado instantáneo sin latencia de animación del cliente
+                item.Parent = character
                 break 
             end
         end
@@ -1564,18 +1565,15 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
             if isAir then
                 if calculatedVelY < -0.5 then
-                    -- OPTIMIZACIÓN EN CAÍDA: Evita enterrar el tiro en el piso a larga distancia
                     local fallSpeed = math_max(calculatedVelY, -18)
                     local fallingYFactor = fallSpeed * 0.30 * vFactor
                     verticalShift = vec3New(0, fallingYFactor, 0)
                 else
-                    -- PREDICCIÓN DE SALTO (INTACTA)
                     local gravityEffect = 0.5 * workspace_Gravity * math_pow(vFactor, 2)
                     local pY = (calculatedVelY * vFactor) - gravityEffect
                     verticalShift = vec3New(0, pY, 0)
                 end
             elseif isStairMovement then
-                -- ESCALERAS / RAMPAS (INTACTO)
                 local pY = calculatedVelY * vFactor
                 verticalShift = vec3New(0, pY, 0)
             end
@@ -1664,8 +1662,8 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    local shotType = Flag("Sheriff_ShotType", "Normal")
-                    LeadTimeLine.Color = (handLineIsBlocked and shotType ~= "Piercer Bullet") and color3RGB(255, 255, 255) or color3RGB(35, 255, 35)
+                    -- LEAD TIME SIEMPRE VERDE
+                    LeadTimeLine.Color = color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
                     LeadTimeLine.Visible = true
@@ -1684,7 +1682,6 @@ local executeActualShoot
 local function startWaitingForSight(initialTarget)
     resetWaitState()
 
-    -- Comprobación estricta de posesión de arma antes de entrar a modo de espera
     local gun, _ = getGunLocation()
     if not gun then return end
 
@@ -1760,9 +1757,16 @@ executeActualShoot = function(targetChar, bestPart)
 
     local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
     if finalPredictedPos then
+        -- REGLA DE SEGURIDAD CONTRA DISPAROS ABORTADOS AL ASOMARSE/CAER:
+        -- Si el punto predecido toca pared pero la parte real del objetivo sí es visible,
+        -- usamos la posición real del objetivo para NO PERDER EL TIRO.
         if wallCheck and shotType ~= "Piercer Bullet" then
             if isGunBlocked(finalPredictedPos, targetChar) then
-                return
+                if not isGunBlocked(bestPart.Position, targetChar) then
+                    finalPredictedPos = bestPart.Position
+                else
+                    return
+                end
             end
         end
 
@@ -1804,7 +1808,6 @@ executeActualShoot = function(targetChar, bestPart)
 end
 
 local function fireAtMurdererDirectly()
-    -- VERIFICACIÓN PREVIA: Si no tienes arma de Sheriff/Héroe, cancela cualquier acción
     local gun, _ = getGunLocation()
     if not gun then
         if isWaitingForSight then resetWaitState() end
@@ -1978,7 +1981,7 @@ SubLabel.Size = udim2New(1, 0, 0.18, 0)
 SubLabel.Position = udim2New(0, 0, 0.74, 0)
 SubLabel.BackgroundTransparency = 1
 SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
-SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton
+SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = SubLabel
 
 local SubConstraint = Instance.new("UITextSizeConstraint")
 SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
