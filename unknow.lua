@@ -978,9 +978,8 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.0 - SHERIFF SUITE (FIXED SHOOT BTN & DELAY)
+-- 👾 KILLER HUB | ENGINE V12.1 - SHERIFF SUITE (ADVANCED SIGHT & WALL FIX)
 -- ============================================================================
-
 
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
@@ -1701,8 +1700,7 @@ local function startWaitingForSight(initialTarget)
             local elapsed = os_clock() - startTime
             local remaining = maxWaitTime - elapsed
 
-            local gun, _ = getGunLocation()
-            if not gun or remaining <= 0 then
+            if remaining <= 0 then
                 resetWaitState()
                 break
             end
@@ -1725,16 +1723,12 @@ local function startWaitingForSight(initialTarget)
             end
 
             local shotType = Flag("Sheriff_ShotType", "Normal")
-            local hrp = targetChar:FindFirstChild("HumanoidRootPart")
-            
-            local isBlocked = false
-            if hrp then
-                isBlocked = isGunBlocked(hrp.Position, targetChar)
-            end
+            local bestPart, isBlocked = getSmartTargetPart(targetChar)
 
-            if hrp and (not isBlocked or shotType == "Piercer Bullet") then
+            -- FIX: Verificación estricta sin traspaso de pared antes de ejecutar disparo
+            if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
                 resetWaitState()
-                executeActualShoot(targetChar, hrp)
+                executeActualShoot(targetChar, bestPart)
                 break
             end
 
@@ -1751,11 +1745,16 @@ executeActualShoot = function(targetChar, bestPart)
 
     local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
     if finalPredictedPos then
-        if wallCheck and shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
-            return
+        -- FIX IMPORTANTE: Verificación anti-wallbang si Piercer Bullet NO está activo
+        if wallCheck and shotType ~= "Piercer Bullet" then
+            if isGunBlocked(finalPredictedPos, targetChar) then
+                return
+            end
         end
 
+        -- Solo equipa el arma si pasó todas las comprobaciones y va a disparar seguro
         autoEquipWeapon()
+        
         local gun, _ = getGunLocation()
         if gun and gun:FindFirstChild("Shoot") then
             local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
@@ -1784,7 +1783,6 @@ executeActualShoot = function(targetChar, bestPart)
 
             gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
 
-            -- CAMBIO: Desequipamiento más lento (0.25 segundos)
             if Flag("Sheriff_UnEquipGun", false) then
                 task.delay(0.25, autoUnequipWeapon)
             end
@@ -1793,8 +1791,6 @@ executeActualShoot = function(targetChar, bestPart)
 end
 
 local function fireAtMurdererDirectly()
-    autoEquipWeapon()
-    
     local shotType = Flag("Sheriff_ShotType", "Normal")
     local wallCheck = Flag("Sheriff_WallCheck", true)
     local waitSight = Flag("Sheriff_WaitSight", false)
@@ -1804,9 +1800,9 @@ local function fireAtMurdererDirectly()
         local targetChar = murderer.Character
         local bestPart, isBlocked = getSmartTargetPart(targetChar) 
         
-        -- Si esta usando Piercer Bullet, deshabilita por completo la función Wait for Sight
         local allowWaitSight = waitSight and (shotType ~= "Piercer Bullet")
 
+        -- FIX: No equipar el arma si está bloqueado por pared y no disparará inmediatamente
         if wallCheck and isBlocked and shotType ~= "Piercer Bullet" then
             if isWaitingForSight then
                 resetWaitState()
