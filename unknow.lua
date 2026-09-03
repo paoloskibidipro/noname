@@ -977,9 +977,8 @@ CoreGui.ChildRemoved:Connect(function(child)
     end
 end)
 
-
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.6 - SHERIFF SUITE (OPTIMIZED PIERCER FIX)
+-- 👾 KILLER HUB | ENGINE V11.9 - SHERIFF SUITE (SMART UN-EQUIP & ANTI-SPAM)
 -- ============================================================================
 
 
@@ -1010,6 +1009,7 @@ local math_abs = math.abs
 local math_pow = math.pow
 local math_min = math.min
 local math_floor = math.floor
+local math_max = math.max
 local vec2New = Vector2.new
 local vec3New = Vector3.new
 local udim2New = UDim2.new
@@ -1020,6 +1020,7 @@ local os_clock = os.clock
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
 local PREDICTION_BOOST = 1.10
+local SHOT_COOLDOWN = 1.8 -- MM2 Reload Cooldown Protection
 
 if _G.KillerHubLines then
     for _, line in pairs(_G.KillerHubLines) do pcall(function() line:Remove() end) end
@@ -1104,9 +1105,17 @@ TabSheriff:CreateToggle("Sheriff_ShowButton", "Show Button", function() if check
 TabSheriff:CreateToggle("Sheriff_LockBtnPos", "Lock Button Position", function() end)
 
 local PageOthers = TabSheriff:CreatePage("Others", "Gear")
+
+PageOthers:CreateSection("Gun Behavior")
+PageOthers:CreateToggle("Sheriff_UnEquipGun", "Un-Equip gun", function() end)
+
 PageOthers:CreateSection("Auto Shoot")
 PageOthers:CreateToggle("Sheriff_AutoShoot", "Auto shoot", function() end)
 PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder visible", "Knife visible"}, function() end)
+
+PageOthers:CreateSection("Wait for Sight")
+PageOthers:CreateToggle("Sheriff_WaitSight", "Wait for Sight", function() end)
+PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end)
 
 -- Weapon & Role Systems
 local function isRangedWeapon(tool)
@@ -1119,6 +1128,14 @@ local function isMeleeWeapon(tool)
     return (tool:FindFirstChild("Stab") or tool.Name == "Knife")
 end
 
+local function getGunLocation()
+    local char = LocalPlayer.Character
+    if char then for _, item in pairs(char:GetChildren()) do if isRangedWeapon(item) then return item, char end end end
+    local bp = LocalPlayer:FindFirstChild("Backpack")
+    if bp then for _, item in pairs(bp:GetChildren()) do if isRangedWeapon(item) then return item, bp end end end
+    return nil, nil
+end
+
 checkWeaponVisibility = function()
     if not cachedScreenGui then return end
     local showBtn = Flag("Sheriff_ShowButton", false)
@@ -1127,16 +1144,8 @@ checkWeaponVisibility = function()
     if not showBtn then cachedScreenGui.Enabled = false return end
 
     if useDetect then
-        local char = LocalPlayer.Character
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        local hasGun = false
-        if char then
-            for _, item in pairs(char:GetChildren()) do if isRangedWeapon(item) then hasGun = true break end end
-        end
-        if not hasGun and backpack then
-            for _, item in pairs(backpack:GetChildren()) do if isRangedWeapon(item) then hasGun = true break end end
-        end
-        cachedScreenGui.Enabled = hasGun
+        local gun, _ = getGunLocation()
+        cachedScreenGui.Enabled = (gun ~= nil)
     else
         cachedScreenGui.Enabled = true
     end
@@ -1157,6 +1166,43 @@ local currentTarget = nil
 local lastPositions = {} 
 local handLineIsBlocked = false 
 local lastScanTime = 0
+local lastShotTime = 0 -- Shot Cooldown Timestamp
+
+local isWaitingForSight = false
+local waitSightThread = nil
+local Label = nil
+local SubLabel = nil
+local DecalTexture = nil
+
+local tweenInfoFast = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+local function resetWaitState()
+    isWaitingForSight = false
+    local threadToCancel = waitSightThread
+    waitSightThread = nil
+
+    if DecalTexture then
+        TweenService:Create(DecalTexture, tweenInfoFast, {
+            Position = udim2New(0.5, 0, 0.44, 0),
+            Size = udim2New(0.37, 0, 0.37, 0)
+        }):Play()
+    end
+    if Label then
+        TweenService:Create(Label, tweenInfoFast, {
+            Position = udim2New(0, 0, 0.75, 0),
+            Size = udim2New(1, 0, 0.2, 0)
+        }):Play()
+        Label.Text = "SHOOT"
+        Label.TextColor3 = color3RGB(255, 255, 255)
+    end
+    if SubLabel then
+        SubLabel.Text = ""
+    end
+
+    if threadToCancel and threadToCancel ~= coroutine.running() then
+        task.cancel(threadToCancel)
+    end
+end
 
 local function setTarget(nt) currentTarget = nt end
 local function parsePlayerData(t)
@@ -1178,6 +1224,7 @@ end
 local RoundStart = ReplicatedStorage:FindFirstChild("RoundStart", true)
 if RoundStart and RoundStart:IsA("RemoteEvent") then
     KillerHub:AddTask(RoundStart.OnClientEvent:Connect(function(a1, a2)
+        resetWaitState()
         table.clear(playerRoles) 
         table.clear(playerDeadStatus) 
         table.clear(lastPositions)
@@ -1203,12 +1250,11 @@ local function autoEquipWeapon()
     end
 end
 
-local function getGunLocation()
-    local char = LocalPlayer.Character
-    if char then for _, item in pairs(char:GetChildren()) do if isRangedWeapon(item) then return item, char end end end
-    local bp = LocalPlayer:FindFirstChild("Backpack")
-    if bp then for _, item in pairs(bp:GetChildren()) do if isRangedWeapon(item) then return item, bp end end end
-    return nil, nil
+local function autoUnEquipWeapon()
+    local character = LocalPlayer.Character
+    if character and character:FindFirstChild("Humanoid") then
+        character.Humanoid:UnequipTools()
+    end
 end
 
 local function getMurderer()
@@ -1268,9 +1314,15 @@ local function getMurderer()
     return currentTarget
 end
 
--- Raycasting & Line of Sight Checks
-local mapCastParams = RaycastParams.new()
-mapCastParams.FilterType = Enum.RaycastFilterType.Exclude
+-- Raycasting Params Isolation
+local wallCastParams = RaycastParams.new()
+wallCastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local gunCastParams = RaycastParams.new()
+gunCastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local visCastParams = RaycastParams.new()
+visCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local cachedIgnoreList = {}
 local function updateIgnoreListCache()
@@ -1281,7 +1333,10 @@ end
 
 KillerHub:AddTask(Players.PlayerAdded:Connect(updateIgnoreListCache))
 KillerHub:AddTask(Players.PlayerRemoving:Connect(updateIgnoreListCache))
-KillerHub:AddTask(LocalPlayer.CharacterAdded:Connect(updateIgnoreListCache))
+KillerHub:AddTask(LocalPlayer.CharacterAdded:Connect(function()
+    updateIgnoreListCache()
+    resetWaitState()
+end))
 updateIgnoreListCache()
 
 local function isGunBlocked(targetPos, targetChar)
@@ -1305,8 +1360,8 @@ local function isGunBlocked(targetPos, targetChar)
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        mapCastParams.FilterDescendantsInstances = ignoreListTemp
-        local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
+        gunCastParams.FilterDescendantsInstances = ignoreListTemp
+        local ray = workspace:Raycast(currentOrigin, direction, gunCastParams)
         if not ray then return false end
 
         local hitInst = ray.Instance
@@ -1340,8 +1395,8 @@ local function isStrictlyVisible(targetChar, targetPart)
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        mapCastParams.FilterDescendantsInstances = tempIgnore
-        local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
+        visCastParams.FilterDescendantsInstances = tempIgnore
+        local ray = workspace:Raycast(currentOrigin, direction, visCastParams)
         if not ray then return true end
 
         local hitInst = ray.Instance
@@ -1384,8 +1439,8 @@ local function getSmartTargetPart(targetChar)
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        mapCastParams.FilterDescendantsInstances = ignoreListTemp
-        local ray = workspace:Raycast(currentOrigin, direction, mapCastParams)
+        wallCastParams.FilterDescendantsInstances = ignoreListTemp
+        local ray = workspace:Raycast(currentOrigin, direction, wallCastParams)
         if not ray then break end
 
         local hitInst = ray.Instance
@@ -1417,7 +1472,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine (Optimizado para distancias reales y Piercer)
+-- Prediction Engine
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1427,7 +1482,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local activeDT = customDelta or emaDeltaTime
     local targetPosition = targetPart.Position
 
-    -- Usa la cámara como referencia de distancia para no romper cálculos estando -200,000 bajo tierra
     local referencePos = Camera and Camera.CFrame.Position or targetPosition
     local distance = (targetPosition - referencePos).Magnitude
 
@@ -1498,7 +1552,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
-    -- Predicción horizontal limpia y precisa para Piercer Bullet y Normal
     horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
 
     if vScale > 0 then
@@ -1623,56 +1676,152 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
 end)
 KillerHub:AddTask(renderConn)
 
--- Fire Execution
-local function fireAtMurdererDirectly()
+-- Core Shoot Handler
+local executeActualShoot
+
+local function startWaitingForSight(initialTarget)
+    resetWaitState()
+
+    isWaitingForSight = true
+
+    if DecalTexture then
+        TweenService:Create(DecalTexture, tweenInfoFast, {Position = udim2New(0.5, 0, 0.28, 0), Size = udim2New(0.37, 0, 0.37, 0)}):Play()
+    end
+    if Label then
+        TweenService:Create(Label, tweenInfoFast, {Position = udim2New(0, 0, 0.52, 0), Size = udim2New(1, 0, 0.2, 0)}):Play()
+        Label.Text = "WAITING..."
+        Label.TextColor3 = color3RGB(255, 50, 50)
+    end
+
+    local maxWaitTime = Flag("Sheriff_WaitTime", 5)
+    local startTime = os_clock()
+
+    waitSightThread = task.spawn(function()
+        while isWaitingForSight do
+            local elapsed = os_clock() - startTime
+            local remaining = maxWaitTime - elapsed
+
+            local gun, _ = getGunLocation()
+            if not gun or remaining <= 0 then
+                resetWaitState()
+                break
+            end
+
+            if SubLabel then
+                SubLabel.Text = string.format("%.1fs", math_max(0, remaining))
+            end
+
+            local murderer = getMurderer()
+            if not murderer or not murderer.Character then
+                resetWaitState()
+                break
+            end
+            local targetChar = murderer.Character
+
+            local hum = targetChar:FindFirstChildOfClass("Humanoid")
+            if not hum or hum.Health <= 0 then
+                resetWaitState()
+                break
+            end
+
+            local shotType = Flag("Sheriff_ShotType", "Normal")
+            local bestPart, isBlocked = getSmartTargetPart(targetChar)
+
+            if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
+                resetWaitState()
+                executeActualShoot(targetChar, bestPart)
+                break
+            end
+
+            RunService.RenderStepped:Wait()
+        end
+    end)
+end
+
+executeActualShoot = function(targetChar, bestPart)
+    local now = os_clock()
+    -- Anti-Spam / Cooldown Check: Ignore execution if gun is reloading
+    if now - lastShotTime < SHOT_COOLDOWN then return end
+
     local shotType = Flag("Sheriff_ShotType", "Normal")
-    if handLineIsBlocked and shotType ~= "Piercer Bullet" then return end
-
     local char = LocalPlayer.Character
-    if not char then return end 
+    if not char then return end
 
+    local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
+    if finalPredictedPos then
+        if shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
+            return
+        end
+
+        autoEquipWeapon()
+        local gun, _ = getGunLocation()
+        if gun and gun:FindFirstChild("Shoot") then
+            lastShotTime = now
+
+            local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
+            if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
+                originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
+            end
+
+            if shotType == "Piercer Bullet" then
+                local camLook = Camera.CFrame.LookVector
+                local horizDir = vec3New(camLook.X, 0, camLook.Z)
+                
+                if horizDir.Magnitude < 0.01 then
+                    local hrp = targetChar:FindFirstChild("HumanoidRootPart")
+                    if hrp then horizDir = vec3New(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) end
+                end
+                
+                if horizDir.Magnitude < 0.01 then
+                    horizDir = vec3New(1, 0, 0)
+                else
+                    horizDir = horizDir.Unit
+                end
+
+                local spawnOrigin = finalPredictedPos - (horizDir * 1.5)
+                originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
+            end
+
+            gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
+
+            -- Smart Un-Equip Execution
+            if Flag("Sheriff_UnEquipGun", false) then
+                task.delay(0.08, autoUnEquipWeapon)
+            end
+        end
+    end
+end
+
+local function fireAtMurdererDirectly()
+    local gun, _ = getGunLocation()
+    if not gun then 
+        if isWaitingForSight then resetWaitState() end
+        return 
+    end
+
+    local shotType = Flag("Sheriff_ShotType", "Normal")
     local murderer = getMurderer()
     if murderer and murderer.Character then
         local targetChar = murderer.Character
         local bestPart, isBlocked = getSmartTargetPart(targetChar) 
-        if bestPart and (not isBlocked or shotType == "Piercer Bullet") then 
-            local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
-            if finalPredictedPos then
-                if shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
-                    return
-                end
-
-                autoEquipWeapon()
-                local gun, _ = getGunLocation()
-                if gun and gun:FindFirstChild("Shoot") then
-                    local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
-                    if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
-                        originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
-                    end
-
-                    -- Piercer Bullet: Siempre dispara 100% horizontal a la altura del torso objetivo
-                    if shotType == "Piercer Bullet" then
-                        local camLook = Camera.CFrame.LookVector
-                        local horizDir = vec3New(camLook.X, 0, camLook.Z)
-                        
-                        if horizDir.Magnitude < 0.01 then
-                            local hrp = targetChar:FindFirstChild("HumanoidRootPart")
-                            if hrp then horizDir = vec3New(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z) end
-                        end
-                        
-                        if horizDir.Magnitude < 0.01 then
-                            horizDir = vec3New(1, 0, 0)
-                        else
-                            horizDir = horizDir.Unit
-                        end
-
-                        local spawnOrigin = finalPredictedPos - (horizDir * 1.0)
-                        originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
-                    end
-
-                    gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
-                end
+        
+        if isBlocked and shotType ~= "Piercer Bullet" then
+            if isWaitingForSight then
+                resetWaitState()
+                return
             end
+            if Flag("Sheriff_WaitSight", false) then
+                startWaitingForSight(targetChar)
+            end
+            return
+        end
+
+        if isWaitingForSight then
+            resetWaitState()
+        end
+
+        if bestPart then
+            executeActualShoot(targetChar, bestPart)
         end
     end
 end
@@ -1682,6 +1831,9 @@ local lastAutoShootTime = 0
 local autoShootConn = RunService.RenderStepped:Connect(function()
     if not Flag("Sheriff_AutoShoot", false) then return end
     
+    local gun, _ = getGunLocation()
+    if not gun then return end
+
     local now = os_clock()
     if now - lastAutoShootTime < 0.18 then return end
 
@@ -1774,18 +1926,17 @@ UiGradient.Color = ColorSequence.new({
 })
 UiGradient.Offset = vec2New(0, 0); UiGradient.Rotation = 0; UiGradient.Parent = GlowOverlay
 
-local rotTask = task.spawn(function()
-    while VoidGui.Parent do
-        local tweenRot = TweenService:Create(UiGradient, TweenInfo.new(3, Enum.EasingStyle.Linear), {Rotation = UiGradient.Rotation + 360})
-        tweenRot:Play()
-        tweenRot.Completed:Wait()
-    end
-end)
-KillerHub:AddTask(rotTask)
+local tweenRot = TweenService:Create(UiGradient, TweenInfo.new(3, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Rotation = 360})
+tweenRot:Play()
+KillerHub:AddTask(tweenRot)
 
-local DecalTexture = Instance.new("ImageLabel")
-DecalTexture.Size = udim2New(0.37, 0, 0.37, 0); DecalTexture.AnchorPoint = vec2New(0.5, 0.5); DecalTexture.Position = udim2New(0.5, 0, 0.44, 0)
-DecalTexture.BackgroundTransparency = 1; DecalTexture.Image = "rbxassetid://125754446555599"
+DecalTexture = Instance.new("ImageLabel")
+DecalTexture.Name = "CrosshairDecal"
+DecalTexture.Size = udim2New(0.37, 0, 0.37, 0)
+DecalTexture.AnchorPoint = vec2New(0.5, 0.5)
+DecalTexture.Position = udim2New(0.5, 0, 0.44, 0)
+DecalTexture.BackgroundTransparency = 1
+DecalTexture.Image = "rbxassetid://125754446555599"
 DecalTexture.ZIndex = ShootButton.ZIndex + 2; DecalTexture.Parent = ShootButton
 
 local tiLoop = TweenInfo.new(0.80, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
@@ -1793,10 +1944,27 @@ local rotAnim = TweenService:Create(DecalTexture, tiLoop, {Rotation = 360})
 rotAnim:Play()
 KillerHub:AddTask(rotAnim)
 
-local Label = Instance.new("TextLabel")
-Label.Size = udim2New(1, 0, 0.2, 0); Label.Position = udim2New(0, 0, 0.75, 0); Label.BackgroundTransparency = 1
-Label.Text = "SHOOT"; Label.TextColor3 = color3RGB(255, 255, 255); Label.TextSize = 15; Label.Font = Enum.Font.GothamBold
-Label.ZIndex = ShootButton.ZIndex + 2; Label.Parent = ShootButton
+Label = Instance.new("TextLabel")
+Label.Name = "ShootLabel"
+Label.Size = udim2New(1, 0, 0.2, 0)
+Label.Position = udim2New(0, 0, 0.75, 0)
+Label.BackgroundTransparency = 1
+Label.Text = "SHOOT"; Label.TextColor3 = color3RGB(255, 255, 255); Label.TextSize = 14; Label.Font = Enum.Font.GothamBold
+Label.TextScaled = true; Label.ZIndex = ShootButton.ZIndex + 2; Label.Parent = ShootButton
+
+local LabelConstraint = Instance.new("UITextSizeConstraint")
+LabelConstraint.MaxTextSize = 15; LabelConstraint.MinTextSize = 8; LabelConstraint.Parent = Label
+
+SubLabel = Instance.new("TextLabel")
+SubLabel.Name = "SubTimerLabel"
+SubLabel.Size = udim2New(1, 0, 0.18, 0)
+SubLabel.Position = udim2New(0, 0, 0.74, 0)
+SubLabel.BackgroundTransparency = 1
+SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
+SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton
+
+local SubConstraint = Instance.new("UITextSizeConstraint")
+SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
 
 local dragging, dragInput, dragStart, startPos
 KillerHub:AddTask(ShootButton.InputBegan:Connect(function(input)
