@@ -978,8 +978,9 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.1 - SHERIFF SUITE (ADVANCED SIGHT & WALL FIX)
+-- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (FALL PRED & ROLE DETECT)
 -- ============================================================================
+
 
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
@@ -1563,16 +1564,18 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
             if isAir then
                 if calculatedVelY < -0.5 then
-                    local fallingYFactor = calculatedVelY * 0.15
-                    local gravityEffect = 0.05 * workspace_Gravity * math_pow(vFactor, 2)
-                    local pY = (fallingYFactor * vFactor) - gravityEffect
-                    verticalShift = vec3New(0, pY, 0)
+                    -- OPTIMIZACIÓN EN CAÍDA: Evita enterrar el tiro en el piso a larga distancia
+                    local fallSpeed = math_max(calculatedVelY, -18)
+                    local fallingYFactor = fallSpeed * 0.30 * vFactor
+                    verticalShift = vec3New(0, fallingYFactor, 0)
                 else
+                    -- PREDICCIÓN DE SALTO (INTACTA)
                     local gravityEffect = 0.5 * workspace_Gravity * math_pow(vFactor, 2)
                     local pY = (calculatedVelY * vFactor) - gravityEffect
                     verticalShift = vec3New(0, pY, 0)
                 end
             elseif isStairMovement then
+                -- ESCALERAS / RAMPAS (INTACTO)
                 local pY = calculatedVelY * vFactor
                 verticalShift = vec3New(0, pY, 0)
             end
@@ -1588,7 +1591,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local finalPredWithY = targetPosition + horizontalShift + verticalShift
     local floorY = getFloorHeight(hrp, targetChar)
     if floorY then
-        local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.1
+        local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.15
         if finalPredWithY.Y < minAllowedY then finalPredWithY = vec3New(finalPredWithY.X, minAllowedY, finalPredWithY.Z) end
     end
 
@@ -1681,6 +1684,10 @@ local executeActualShoot
 local function startWaitingForSight(initialTarget)
     resetWaitState()
 
+    -- Comprobación estricta de posesión de arma antes de entrar a modo de espera
+    local gun, _ = getGunLocation()
+    if not gun then return end
+
     isWaitingForSight = true
 
     if DecalTexture then
@@ -1697,6 +1704,12 @@ local function startWaitingForSight(initialTarget)
 
     waitSightThread = task.spawn(function()
         while isWaitingForSight do
+            local currentGun, _ = getGunLocation()
+            if not currentGun then
+                resetWaitState()
+                break
+            end
+
             local elapsed = os_clock() - startTime
             local remaining = maxWaitTime - elapsed
 
@@ -1725,7 +1738,6 @@ local function startWaitingForSight(initialTarget)
             local shotType = Flag("Sheriff_ShotType", "Normal")
             local bestPart, isBlocked = getSmartTargetPart(targetChar)
 
-            -- FIX: Verificación estricta sin traspaso de pared antes de ejecutar disparo
             if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
                 resetWaitState()
                 executeActualShoot(targetChar, bestPart)
@@ -1743,20 +1755,21 @@ executeActualShoot = function(targetChar, bestPart)
     local char = LocalPlayer.Character
     if not char then return end
 
+    local gun, _ = getGunLocation()
+    if not gun then return end
+
     local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
     if finalPredictedPos then
-        -- FIX IMPORTANTE: Verificación anti-wallbang si Piercer Bullet NO está activo
         if wallCheck and shotType ~= "Piercer Bullet" then
             if isGunBlocked(finalPredictedPos, targetChar) then
                 return
             end
         end
 
-        -- Solo equipa el arma si pasó todas las comprobaciones y va a disparar seguro
         autoEquipWeapon()
         
-        local gun, _ = getGunLocation()
-        if gun and gun:FindFirstChild("Shoot") then
+        local activeGun, _ = getGunLocation()
+        if activeGun and activeGun:FindFirstChild("Shoot") then
             local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
             if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
                 originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
@@ -1781,7 +1794,7 @@ executeActualShoot = function(targetChar, bestPart)
                 originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
             end
 
-            gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
+            activeGun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
 
             if Flag("Sheriff_UnEquipGun", false) then
                 task.delay(0.25, autoUnequipWeapon)
@@ -1791,6 +1804,13 @@ executeActualShoot = function(targetChar, bestPart)
 end
 
 local function fireAtMurdererDirectly()
+    -- VERIFICACIÓN PREVIA: Si no tienes arma de Sheriff/Héroe, cancela cualquier acción
+    local gun, _ = getGunLocation()
+    if not gun then
+        if isWaitingForSight then resetWaitState() end
+        return
+    end
+
     local shotType = Flag("Sheriff_ShotType", "Normal")
     local wallCheck = Flag("Sheriff_WallCheck", true)
     local waitSight = Flag("Sheriff_WaitSight", false)
@@ -1802,7 +1822,6 @@ local function fireAtMurdererDirectly()
         
         local allowWaitSight = waitSight and (shotType ~= "Piercer Bullet")
 
-        -- FIX: No equipar el arma si está bloqueado por pared y no disparará inmediatamente
         if wallCheck and isBlocked and shotType ~= "Piercer Bullet" then
             if isWaitingForSight then
                 resetWaitState()
