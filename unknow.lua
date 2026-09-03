@@ -981,7 +981,6 @@ end)
 -- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (FALL PRED & ROLE DETECT)
 -- ============================================================================
 
-
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
     return
@@ -1110,6 +1109,7 @@ PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder v
 
 PageOthers:CreateSection("Wait for Sight")
 PageOthers:CreateToggle("Sheriff_WaitSight", "Wait for Sight", function() end)
+PageOthers:CreateToggle("Sheriff_CancelOnClick", "Cancel waiting on click", function() end) -- Toggle Toggle de Cancelación
 PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end, 15)
 
 PageOthers:CreateSection("Gun Actions")
@@ -1241,7 +1241,7 @@ local function autoEquipWeapon()
         for _, item in pairs(backpack:GetChildren()) do
             if isRangedWeapon(item) then 
                 character.Humanoid:EquipTool(item) 
-                task.wait(0.03) -- Breve pausa para sincronización del motor de Roblox
+                task.wait(0.03)
                 break 
             end
         end
@@ -1315,7 +1315,7 @@ local function getMurderer()
     return currentTarget
 end
 
--- Raycasting Params & Static Reusable Buffer (Optimización de Memoria)
+-- Raycasting Params & Static Reusable Buffer
 local wallCastParams = RaycastParams.new()
 wallCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1480,7 +1480,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine (Sin alteraciones matemáticas)
+-- Prediction Engine
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1669,7 +1669,6 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    -- MODIFICACIÓN: Se mantiene SIEMPRE verde puro (35, 255, 35) incluso con wallcheck activo
                     LeadTimeLine.Color = color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
@@ -1705,7 +1704,7 @@ local function startWaitingForSight(initialTarget)
 
     local maxWaitTime = Flag("Sheriff_WaitTime", 15)
     local startTime = os_clock()
-    local lostSightCounter = 0 -- Buffer de tolerancia para evitar reseteos inmediatos por caída/asomarse
+    local lostSightCounter = 0 
 
     waitSightThread = task.spawn(function()
         while isWaitingForSight do
@@ -1805,13 +1804,22 @@ executeActualShoot = function(targetChar, bestPart)
             activeGun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
 
             if Flag("Sheriff_UnEquipGun", false) then
-                task.delay(0.25, autoUnequipWeapon)
+                task.delay(0.20, autoUnequipWeapon)
             end
         end
     end
 end
 
 local function fireAtMurdererDirectly()
+    -- Evaluaciones de Cancelación
+    local cancelOnClick = Flag("Sheriff_CancelOnClick", false)
+    if isWaitingForSight then
+        if cancelOnClick then
+            resetWaitState()
+            return
+        end
+    end
+
     local gun, _ = getGunLocation()
     if not gun then
         if isWaitingForSight then resetWaitState() end
@@ -1849,7 +1857,7 @@ local function fireAtMurdererDirectly()
     end
 end
 
--- Auto Shoot Engine (Optimizado)
+-- Auto Shoot Engine
 local lastAutoShootTime = 0
 local autoShootConn = RunService.Heartbeat:Connect(function()
     if not Flag("Sheriff_AutoShoot", false) then return end
