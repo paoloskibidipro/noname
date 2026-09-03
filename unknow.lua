@@ -978,9 +978,9 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V11.9 - SHERIFF SUITE (SMART UN-EQUIP & ANTI-SPAM)
+-- 👾 KILLER HUB | ENGINE V12.0 - SHERIFF SUITE (WAIT-SIGHT & PREDICTION FIX)
 -- ============================================================================
-
+local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/Salayer09/KillerHub/refs/heads/main/Slayer.lua"))()
 
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
@@ -1020,7 +1020,6 @@ local os_clock = os.clock
 local workspace_Gravity = workspace.Gravity
 local VECTOR_ZERO = vec3New(0, 0, 0)
 local PREDICTION_BOOST = 1.10
-local SHOT_COOLDOWN = 1.8 -- MM2 Reload Cooldown Protection
 
 if _G.KillerHubLines then
     for _, line in pairs(_G.KillerHubLines) do pcall(function() line:Remove() end) end
@@ -1105,10 +1104,6 @@ TabSheriff:CreateToggle("Sheriff_ShowButton", "Show Button", function() if check
 TabSheriff:CreateToggle("Sheriff_LockBtnPos", "Lock Button Position", function() end)
 
 local PageOthers = TabSheriff:CreatePage("Others", "Gear")
-
-PageOthers:CreateSection("Gun Behavior")
-PageOthers:CreateToggle("Sheriff_UnEquipGun", "Un-Equip gun", function() end)
-
 PageOthers:CreateSection("Auto Shoot")
 PageOthers:CreateToggle("Sheriff_AutoShoot", "Auto shoot", function() end)
 PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder visible", "Knife visible"}, function() end)
@@ -1116,6 +1111,9 @@ PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder v
 PageOthers:CreateSection("Wait for Sight")
 PageOthers:CreateToggle("Sheriff_WaitSight", "Wait for Sight", function() end)
 PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end)
+
+PageOthers:CreateSection("Gun Actions")
+PageOthers:CreateToggle("Sheriff_UnEquipGun", "Un-Equip gun", function() end)
 
 -- Weapon & Role Systems
 local function isRangedWeapon(tool)
@@ -1166,7 +1164,6 @@ local currentTarget = nil
 local lastPositions = {} 
 local handLineIsBlocked = false 
 local lastScanTime = 0
-local lastShotTime = 0 -- Shot Cooldown Timestamp
 
 local isWaitingForSight = false
 local waitSightThread = nil
@@ -1250,10 +1247,13 @@ local function autoEquipWeapon()
     end
 end
 
-local function autoUnEquipWeapon()
+local function autoUnequipWeapon()
     local character = LocalPlayer.Character
-    if character and character:FindFirstChild("Humanoid") then
-        character.Humanoid:UnequipTools()
+    if character then
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:UnequipTools()
+        end
     end
 end
 
@@ -1725,9 +1725,12 @@ local function startWaitingForSight(initialTarget)
             end
 
             local shotType = Flag("Sheriff_ShotType", "Normal")
+            local wallCheck = Flag("Sheriff_WallCheck", true)
             local bestPart, isBlocked = getSmartTargetPart(targetChar)
+            
+            local visibleNow = bestPart and (not isBlocked or not wallCheck or shotType == "Piercer Bullet")
 
-            if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
+            if visibleNow then
                 resetWaitState()
                 executeActualShoot(targetChar, bestPart)
                 break
@@ -1739,25 +1742,27 @@ local function startWaitingForSight(initialTarget)
 end
 
 executeActualShoot = function(targetChar, bestPart)
-    local now = os_clock()
-    -- Anti-Spam / Cooldown Check: Ignore execution if gun is reloading
-    if now - lastShotTime < SHOT_COOLDOWN then return end
-
     local shotType = Flag("Sheriff_ShotType", "Normal")
+    local wallCheck = Flag("Sheriff_WallCheck", true)
     local char = LocalPlayer.Character
     if not char then return end
 
+    -- Verificación estricta de visión real del jugador antes de disparar predicción
+    if wallCheck and shotType ~= "Piercer Bullet" then
+        if not isStrictlyVisible(targetChar, bestPart) then
+            return
+        end
+    end
+
     local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
     if finalPredictedPos then
-        if shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
+        if wallCheck and shotType ~= "Piercer Bullet" and isGunBlocked(finalPredictedPos, targetChar) then
             return
         end
 
         autoEquipWeapon()
         local gun, _ = getGunLocation()
         if gun and gun:FindFirstChild("Shoot") then
-            lastShotTime = now
-
             local originCFrame = char.HumanoidRootPart and char.HumanoidRootPart.CFrame or Camera.CFrame
             if char:FindFirstChild("HumanoidRootPart") and char.HumanoidRootPart:FindFirstChild("GunRaycastAttachment") then 
                 originCFrame = char.HumanoidRootPart.GunRaycastAttachment.WorldCFrame 
@@ -1784,9 +1789,8 @@ executeActualShoot = function(targetChar, bestPart)
 
             gun.Shoot:FireServer(originCFrame, cframeNew(finalPredictedPos))
 
-            -- Smart Un-Equip Execution
             if Flag("Sheriff_UnEquipGun", false) then
-                task.delay(0.08, autoUnEquipWeapon)
+                task.delay(0.25, autoUnequipWeapon)
             end
         end
     end
@@ -1800,28 +1804,26 @@ local function fireAtMurdererDirectly()
     end
 
     local shotType = Flag("Sheriff_ShotType", "Normal")
+    local wallCheck = Flag("Sheriff_WallCheck", true)
     local murderer = getMurderer()
     if murderer and murderer.Character then
         local targetChar = murderer.Character
         local bestPart, isBlocked = getSmartTargetPart(targetChar) 
         
-        if isBlocked and shotType ~= "Piercer Bullet" then
+        -- Si está libre de paredes o Piercer Bullet está activo
+        if not isBlocked or not wallCheck or shotType == "Piercer Bullet" then
             if isWaitingForSight then
                 resetWaitState()
-                return
             end
-            if Flag("Sheriff_WaitSight", false) then
-                startWaitingForSight(targetChar)
+            if bestPart then
+                executeActualShoot(targetChar, bestPart)
             end
             return
         end
 
-        if isWaitingForSight then
-            resetWaitState()
-        end
-
-        if bestPart then
-            executeActualShoot(targetChar, bestPart)
+        -- Si está tapado por una pared y no estábamos esperando aún
+        if not isWaitingForSight and Flag("Sheriff_WaitSight", false) then
+            startWaitingForSight(targetChar)
         end
     end
 end
