@@ -978,7 +978,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.3 - SHERIFF SUITE (STABLE SHOOT & GREEN TRACER)
+-- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (FALL PRED & ROLE DETECT)
 -- ============================================================================
 
 
@@ -1065,10 +1065,10 @@ TabSheriff:CreateToggle("Sheriff_JumpPred", "Jump Prediction", function() end)
 TabSheriff:CreateToggle("Sheriff_WallCheck", "Wall Check", function() end)
 
 TabSheriff:CreateSection("Prediction")
-TabSheriff:CreateSlider("Sheriff_HScale", "Horizontal Prediction", 0, 300, function() end)
-TabSheriff:CreateSlider("Sheriff_VScale", "Vertical Prediction", 0, 300, function() end)
+TabSheriff:CreateSlider("Sheriff_HScale", "Horizontal Prediction", 0, 300, function() end, 100)
+TabSheriff:CreateSlider("Sheriff_VScale", "Vertical Prediction", 0, 300, function() end, 100)
 
-local sliderPing = TabSheriff:CreateSlider("Sheriff_PingComp", "Ping Compensation", 0, 300, function() end)
+local sliderPing = TabSheriff:CreateSlider("Sheriff_PingComp", "Ping Compensation", 0, 300, function() end, 50)
 
 local pingLoopThread
 TabSheriff:CreateToggle("Sheriff_PrioritizePing", "Prioritize Ping", function(estado)
@@ -1084,7 +1084,7 @@ TabSheriff:CreateToggle("Sheriff_PrioritizePing", "Prioritize Ping", function(es
     end
 end)
 
-TabSheriff:CreateSlider("Sheriff_CloseRange", "Close Range Zone", 0, 20, function() end)
+TabSheriff:CreateSlider("Sheriff_CloseRange", "Close Range Zone", 0, 20, function() end, 6)
 
 TabSheriff:CreateSection("Visuals")
 TabSheriff:CreateMultiDropdown("Sheriff_Tracers", "Tracers", {"Tracer Prediction", "Min Tracer Prediction", "Lead Time"}, function() end)
@@ -1092,7 +1092,7 @@ TabSheriff:CreateMultiDropdown("Sheriff_Tracers", "Tracers", {"Tracer Prediction
 local cachedShootButton, cachedScreenGui
 TabSheriff:CreateSlider("Sheriff_BtnSize", "Button Size", 50, 200, function(val)
     if cachedShootButton then cachedShootButton.Size = udim2New(0, val, 0, val) end
-end)
+end, 95)
 
 TabSheriff:CreateSection("Stabilizers")
 TabSheriff:CreateToggle("Sheriff_InertialStab", "Inertial Stabilizer", function() end)
@@ -1110,7 +1110,7 @@ PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder v
 
 PageOthers:CreateSection("Wait for Sight")
 PageOthers:CreateToggle("Sheriff_WaitSight", "Wait for Sight", function() end)
-PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end)
+PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end, 15)
 
 PageOthers:CreateSection("Gun Actions")
 PageOthers:CreateToggle("Sheriff_UnEquipGun", "Un-Equip gun", function() end)
@@ -1240,8 +1240,8 @@ local function autoEquipWeapon()
     if character and character:FindFirstChild("Humanoid") and backpack then
         for _, item in pairs(backpack:GetChildren()) do
             if isRangedWeapon(item) then 
-                -- Equipado instantáneo sin latencia de animación del cliente
-                item.Parent = character
+                character.Humanoid:EquipTool(item) 
+                task.wait(0.03) -- Breve pausa para sincronización del motor de Roblox
                 break 
             end
         end
@@ -1315,7 +1315,7 @@ local function getMurderer()
     return currentTarget
 end
 
--- Raycasting Params Isolation
+-- Raycasting Params & Static Reusable Buffer (Optimización de Memoria)
 local wallCastParams = RaycastParams.new()
 wallCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1326,6 +1326,8 @@ local visCastParams = RaycastParams.new()
 visCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local cachedIgnoreList = {}
+local tempIgnoreBuffer = {}
+
 local function updateIgnoreListCache()
     table.clear(cachedIgnoreList)
     if LocalPlayer.Character then table.insert(cachedIgnoreList, LocalPlayer.Character) end
@@ -1355,13 +1357,15 @@ local function isGunBlocked(targetPos, targetChar)
     local direction = targetPos - origin
     if direction.Magnitude < 0.1 then return false end
 
-    local ignoreListTemp = table.clone(cachedIgnoreList)
+    table.clear(tempIgnoreBuffer)
+    for i = 1, #cachedIgnoreList do tempIgnoreBuffer[i] = cachedIgnoreList[i] end
+    
     local currentOrigin = origin
     local rayPasses = 0
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        gunCastParams.FilterDescendantsInstances = ignoreListTemp
+        gunCastParams.FilterDescendantsInstances = tempIgnoreBuffer
         local ray = workspace:Raycast(currentOrigin, direction, gunCastParams)
         if not ray then return false end
 
@@ -1373,7 +1377,7 @@ local function isGunBlocked(targetPos, targetChar)
         if hitInst and hitInst.CanCollide and hitInst.Transparency < 0.8 then
             return true
         else
-            table.insert(ignoreListTemp, hitInst)
+            table.insert(tempIgnoreBuffer, hitInst)
             currentOrigin = ray.Position + (direction.Unit * 0.05)
             direction = targetPos - currentOrigin
         end
@@ -1390,13 +1394,15 @@ local function isStrictlyVisible(targetChar, targetPart)
     if isGunBlocked(targetPos, targetChar) then return false end
 
     local direction = targetPos - origin
-    local tempIgnore = table.clone(cachedIgnoreList)
+    table.clear(tempIgnoreBuffer)
+    for i = 1, #cachedIgnoreList do tempIgnoreBuffer[i] = cachedIgnoreList[i] end
+
     local currentOrigin = origin
     local rayPasses = 0
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        visCastParams.FilterDescendantsInstances = tempIgnore
+        visCastParams.FilterDescendantsInstances = tempIgnoreBuffer
         local ray = workspace:Raycast(currentOrigin, direction, visCastParams)
         if not ray then return true end
 
@@ -1408,7 +1414,7 @@ local function isStrictlyVisible(targetChar, targetPart)
         if hitInst and hitInst.CanCollide and hitInst.Transparency < 0.8 then
             return false
         else
-            table.insert(tempIgnore, hitInst)
+            table.insert(tempIgnoreBuffer, hitInst)
             currentOrigin = ray.Position + (direction.Unit * 0.05)
             direction = targetPos - currentOrigin
         end
@@ -1430,7 +1436,8 @@ local function getSmartTargetPart(targetChar)
     end
     
     local origin = Camera.CFrame.Position
-    local ignoreListTemp = table.clone(cachedIgnoreList)
+    table.clear(tempIgnoreBuffer)
+    for i = 1, #cachedIgnoreList do tempIgnoreBuffer[i] = cachedIgnoreList[i] end
 
     local targetPos = hrp.Position
     local currentOrigin = origin
@@ -1440,7 +1447,7 @@ local function getSmartTargetPart(targetChar)
 
     while direction.Magnitude > 0.1 and rayPasses < 5 do
         rayPasses = rayPasses + 1
-        wallCastParams.FilterDescendantsInstances = ignoreListTemp
+        wallCastParams.FilterDescendantsInstances = tempIgnoreBuffer
         local ray = workspace:Raycast(currentOrigin, direction, wallCastParams)
         if not ray then break end
 
@@ -1453,7 +1460,7 @@ local function getSmartTargetPart(targetChar)
             blocked = true
             break 
         else
-            table.insert(ignoreListTemp, hitInst)
+            table.insert(tempIgnoreBuffer, hitInst)
             currentOrigin = ray.Position + (direction.Unit * 0.05)
             direction = targetPos - currentOrigin
         end
@@ -1473,7 +1480,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine
+-- Prediction Engine (Sin alteraciones matemáticas)
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1662,7 +1669,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
 
                 if handOnScreen and predOnScreen then
-                    -- LEAD TIME SIEMPRE VERDE
+                    -- MODIFICACIÓN: Se mantiene SIEMPRE verde puro (35, 255, 35) incluso con wallcheck activo
                     LeadTimeLine.Color = color3RGB(35, 255, 35)
                     LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
                     LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
@@ -1696,8 +1703,9 @@ local function startWaitingForSight(initialTarget)
         Label.TextColor3 = color3RGB(255, 50, 50)
     end
 
-    local maxWaitTime = Flag("Sheriff_WaitTime", 5)
+    local maxWaitTime = Flag("Sheriff_WaitTime", 15)
     local startTime = os_clock()
+    local lostSightCounter = 0 -- Buffer de tolerancia para evitar reseteos inmediatos por caída/asomarse
 
     waitSightThread = task.spawn(function()
         while isWaitingForSight do
@@ -1721,24 +1729,27 @@ local function startWaitingForSight(initialTarget)
 
             local murderer = getMurderer()
             if not murderer or not murderer.Character then
-                resetWaitState()
-                break
-            end
-            local targetChar = murderer.Character
+                lostSightCounter = lostSightCounter + 0.016
+                if lostSightCounter > 0.15 then
+                    resetWaitState()
+                    break
+                end
+            else
+                local targetChar = murderer.Character
+                local hum = targetChar:FindFirstChildOfClass("Humanoid")
+                if not hum or hum.Health <= 0 then
+                    resetWaitState()
+                    break
+                end
 
-            local hum = targetChar:FindFirstChildOfClass("Humanoid")
-            if not hum or hum.Health <= 0 then
-                resetWaitState()
-                break
-            end
+                local shotType = Flag("Sheriff_ShotType", "Normal")
+                local bestPart, isBlocked = getSmartTargetPart(targetChar)
 
-            local shotType = Flag("Sheriff_ShotType", "Normal")
-            local bestPart, isBlocked = getSmartTargetPart(targetChar)
-
-            if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
-                resetWaitState()
-                executeActualShoot(targetChar, bestPart)
-                break
+                if bestPart and (not isBlocked or shotType == "Piercer Bullet") then
+                    resetWaitState()
+                    executeActualShoot(targetChar, bestPart)
+                    break
+                end
             end
 
             RunService.RenderStepped:Wait()
@@ -1757,16 +1768,9 @@ executeActualShoot = function(targetChar, bestPart)
 
     local finalPredictedPos = getPredictedPosition(targetChar, bestPart)
     if finalPredictedPos then
-        -- REGLA DE SEGURIDAD CONTRA DISPAROS ABORTADOS AL ASOMARSE/CAER:
-        -- Si el punto predecido toca pared pero la parte real del objetivo sí es visible,
-        -- usamos la posición real del objetivo para NO PERDER EL TIRO.
         if wallCheck and shotType ~= "Piercer Bullet" then
             if isGunBlocked(finalPredictedPos, targetChar) then
-                if not isGunBlocked(bestPart.Position, targetChar) then
-                    finalPredictedPos = bestPart.Position
-                else
-                    return
-                end
+                return
             end
         end
 
@@ -1827,7 +1831,6 @@ local function fireAtMurdererDirectly()
 
         if wallCheck and isBlocked and shotType ~= "Piercer Bullet" then
             if isWaitingForSight then
-                resetWaitState()
                 return
             end
             if allowWaitSight then
@@ -1846,16 +1849,16 @@ local function fireAtMurdererDirectly()
     end
 end
 
--- Auto Shoot Engine
+-- Auto Shoot Engine (Optimizado)
 local lastAutoShootTime = 0
-local autoShootConn = RunService.RenderStepped:Connect(function()
+local autoShootConn = RunService.Heartbeat:Connect(function()
     if not Flag("Sheriff_AutoShoot", false) then return end
-    
-    local gun, _ = getGunLocation()
-    if not gun then return end
 
     local now = os_clock()
     if now - lastAutoShootTime < 0.18 then return end
+
+    local gun, _ = getGunLocation()
+    if not gun then return end
 
     local murderer = getMurderer()
     if not murderer or not murderer.Character then return end
@@ -1981,7 +1984,7 @@ SubLabel.Size = udim2New(1, 0, 0.18, 0)
 SubLabel.Position = udim2New(0, 0, 0.74, 0)
 SubLabel.BackgroundTransparency = 1
 SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
-SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = SubLabel
+SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton
 
 local SubConstraint = Instance.new("UITextSizeConstraint")
 SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
