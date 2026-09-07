@@ -144,7 +144,7 @@ if isfile and isfile(fileName) and readfile then
 end
 
 -- [3] GRAPHICAL INTERFACE (ENGLISH)
-local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/Paolo0109/KillerHUB/refs/heads/main/InterfazBase.lua"))()
+local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/zpxlo0ev/LuXpaO/refs/heads/main/007900118.lua"))()
 
 local VisualsTab = KillerHub:CreateTab("Visuals", "rbxassetid://6523858394")
 local PagePlayers = VisualsTab:CreatePage("Players ESP", "Eye")
@@ -978,7 +978,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (FALL PRED & ROLE DETECT)
+-- 👾 KILLER HUB | ENGINE V12.2 - SHERIFF SUITE (ADVANCED ACCEL & CURVE PRED)
 -- ============================================================================
 
 if getgenv().__KillerHubSheriff_Loaded then
@@ -1109,7 +1109,7 @@ PageOthers:CreateDropdown("Sheriff_AutoShootType", "Type Auto shoot", {"Murder v
 
 PageOthers:CreateSection("Wait for Sight")
 PageOthers:CreateToggle("Sheriff_WaitSight", "Wait for Sight", function() end)
-PageOthers:CreateToggle("Sheriff_CancelOnClick", "Cancel waiting on click", function() end) -- Toggle Toggle de Cancelación
+PageOthers:CreateToggle("Sheriff_CancelOnClick", "Cancel waiting on click", function() end)
 PageOthers:CreateSlider("Sheriff_WaitTime", "Wait Time", 5, 67, function() end, 15)
 
 PageOthers:CreateSection("Gun Actions")
@@ -1315,7 +1315,7 @@ local function getMurderer()
     return currentTarget
 end
 
--- Raycasting Params & Static Reusable Buffer
+-- Raycasting Params
 local wallCastParams = RaycastParams.new()
 wallCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1480,7 +1480,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine
+-- Prediction Engine (Corregido para curvas y pasitos)
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1495,11 +1495,26 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local moveMag = humanoid.MoveDirection.Magnitude
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
-    local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
-    
-    local intendedVel = vec3New(humanoid.MoveDirection.X * walkSpeed, 0, humanoid.MoveDirection.Z * walkSpeed)
+    local walkSpeed = (humanoid.WalkSpeed > 0) and humanoid.WalkSpeed or 16
+
     local actualPhysicsH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
-    local rawVelocity = actualPhysicsH:Lerp(intendedVel, math_clamp(moveMag, 0, 1))
+    local realSpeedH = actualPhysicsH.Magnitude
+
+    -- Control de velocidad real y aceleración
+    local effectiveSpeed = math_min(realSpeedH, walkSpeed)
+    local intendedVel = vec3New(humanoid.MoveDirection.X * effectiveSpeed, 0, humanoid.MoveDirection.Z * effectiveSpeed)
+
+    local speedRatio = math_clamp(realSpeedH / math_max(walkSpeed, 1), 0, 1)
+    local rawVelocity = actualPhysicsH:Lerp(intendedVel, speedRatio)
+
+    -- Amortiguación de curvas y zigs-zags
+    if smoothedVelocity.Magnitude > 0.5 and rawVelocity.Magnitude > 0.5 then
+        local dotProduct = smoothedVelocity.Unit:Dot(rawVelocity.Unit)
+        if dotProduct < 0.85 then
+            local dampingFactor = math_clamp((dotProduct + 1) / 1.85, 0.25, 1.0)
+            rawVelocity = rawVelocity * dampingFactor
+        end
+    end
 
     local calculatedVelY = rawPhysicsVel.Y
     local lastData = lastPositions[targetChar]
@@ -1530,7 +1545,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     local vSmoothAlpha = 0.35
     if isStopping then vSmoothAlpha = 0.80
-    elseif isStarting then vSmoothAlpha = 0.20
+    elseif isStarting then vSmoothAlpha = 0.15
     elseif Flag("Sheriff_InertialStab", true) then vSmoothAlpha = math_clamp(14 * activeDT, 0.18, 0.50) end
     
     smoothedVelocity = smoothedVelocity:Lerp(rawVelocity, vSmoothAlpha)
@@ -1811,7 +1826,6 @@ executeActualShoot = function(targetChar, bestPart)
 end
 
 local function fireAtMurdererDirectly()
-    -- Evaluaciones de Cancelación
     local cancelOnClick = Flag("Sheriff_CancelOnClick", false)
     if isWaitingForSight then
         if cancelOnClick then
