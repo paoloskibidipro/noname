@@ -1,5 +1,5 @@
 -- ============================================================================
--- 👻 KILLER HUB - MM2 ADVANCED VISUAL SUITE (SINGLE-TAB INTEGRATED V5.2)
+-- 👻 KILLER HUB - MM2 ADVANCED VISUAL SUITE (WITH DUELS ESP SUPPORT V4.5)
 -- ============================================================================
 
 local HttpService = game:GetService("HttpService")
@@ -29,20 +29,21 @@ local Instance_new = Instance.new
 local UDim2_new = UDim2.new
 local playersGetPlayers = Players.GetPlayers
 
--- Default Game Roles & Teams Colors
+-- Default Game Roles Colors
 local DefaultColors = {
-    Murderer = Color3_fromRGB(180, 55, 55),
-    Sheriff  = Color3_fromRGB(35, 102, 204),
-    Hero     = Color3_fromRGB(230, 188, 62),
-    Innocent = Color3_fromRGB(26, 171, 81),
-    Dead     = Color3_fromRGB(115, 115, 115),
-    GunDrop  = Color3_fromRGB(255, 0, 0),
-    Teammate = Color3_fromRGB(0, 255, 0),
-    Enemy    = Color3_fromRGB(255, 0, 0)
+    Murderer     = Color3_fromRGB(180, 55, 55),
+    Sheriff      = Color3_fromRGB(35, 102, 204),
+    Hero         = Color3_fromRGB(230, 188, 62),
+    Innocent     = Color3_fromRGB(26, 171, 81),
+    Dead         = Color3_fromRGB(115, 115, 115),
+    GunDrop      = Color3_fromRGB(255, 0, 0),
+    DuelEnemy    = Color3_fromRGB(255, 40, 40),  -- Rojo para rivales
+    DuelTeammate = Color3_fromRGB(40, 140, 255)  -- Azul para nuestro equipo
 }
 
 -- [1] CONFIGURATION TABLE
 local Config = { 
+    -- NORMAL ESP
     Highlight = false, 
     HighlightTrans = 50,
     HighlightRoles = {["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, ["Dead/None"] = false},
@@ -61,13 +62,25 @@ local Config = {
     LimbChamsTrans = 50,
     LimbChamsRoles = {["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, ["Dead/None"] = false},
 
-    -- DUELS CONFIG
-    DuelESP = true, -- Activado por defecto para detectar cuando inicie un duelo
-    DuelHighlight = true,
-    DuelBox = true,
-    DuelName = true,
-    DuelTracer = false,
+    -- DUELS ESP CONFIG
+    DuelHighlight = false,
+    DuelHighlightTrans = 50,
+    DuelHighlightRoles = {["Enemy"] = true, ["Teammate"] = false},
 
+    DuelLimbChams = false,
+    DuelLimbChamsTrans = 50,
+    DuelLimbChamsRoles = {["Enemy"] = true, ["Teammate"] = false},
+
+    DuelBox = false,
+    DuelBoxRoles = {["Enemy"] = true, ["Teammate"] = false},
+
+    DuelName = false,
+    DuelNameRoles = {["Enemy"] = true, ["Teammate"] = false},
+
+    DuelTracer = false,
+    DuelTracerRoles = {["Enemy"] = true, ["Teammate"] = false},
+
+    -- GENERAL & DROPPED GUN
     GunCham = false,    
     GunName = false,    
     GunTracer = false, 
@@ -75,14 +88,19 @@ local Config = {
     GunNameSize = 14,
     MaxDistance = 400,
     
-    CustomColorsActive = {["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, ["Dead/None"] = false, ["GunDrop"] = false},
+    CustomColorsActive = {
+        ["Murderer"] = false, ["Sheriff"] = false, ["Hero"] = false, ["Innocent"] = false, 
+        ["Dead/None"] = false, ["GunDrop"] = false, ["DuelEnemy"] = false, ["DuelTeammate"] = false
+    },
     CustomColorsRGB = {
-        ["Murderer"] = {180, 55, 55},
-        ["Sheriff"]  = {35, 102, 204},
-        ["Hero"]     = {230, 188, 62},
-        ["Innocent"] = {26, 171, 81},
-        ["Dead/None"]= {115, 115, 115},
-        ["GunDrop"]  = {255, 0, 0}
+        ["Murderer"]     = {180, 55, 55},
+        ["Sheriff"]      = {35, 102, 204},
+        ["Hero"]         = {230, 188, 62},
+        ["Innocent"]     = {26, 171, 81},
+        ["Dead/None"]    = {115, 115, 115},
+        ["GunDrop"]      = {255, 0, 0},
+        ["DuelEnemy"]    = {255, 40, 40},
+        ["DuelTeammate"] = {40, 140, 255}
     }
 }
 
@@ -115,11 +133,13 @@ end
 -- [3] GRAPHICAL INTERFACE
 local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/zpxlo0ev/LuXpaO/refs/heads/main/007900118.lua"))()
 
-local VisualsTab  = KillerHub:CreateTab("Visuals", "Eye")
+local VisualsTab  = KillerHub:CreateTab("Visuals", "rbxassetid://6523858394")
 local PagePlayers = VisualsTab:CreatePage("Players ESP", "Eye")
 local PageDuels   = VisualsTab:CreatePage("Duels ESP", "Sword")
 
--- PAGE 1: PLAYERS ESP
+-- ==========================================
+-- PAGE 1: PLAYERS ESP (MODO NORMAL)
+-- ==========================================
 PagePlayers:CreateSection("Player ESP")
 
 local ToggleHighlight = PagePlayers:CreateToggleSlider("EspHighlight", "EspHighlightTrans", "Highlight ESP", 0, 100, 
@@ -150,31 +170,24 @@ end)
 
 local ToggleTracer = PagePlayers:CreateToggle("EspTracer", "Tracer ESP", function(val) Config.Tracer = val; saveConfig() end)
 PagePlayers:CreateDropdown("EspTracerPos", "Tracer Position", {"Bottom Center", "Top Center", "Middle Left", "Middle Right", "Center Screen"}, function(sel)
-    Config.TracerPosition = sel
-    saveConfig()
+    Config.TracerPosition = sel; saveConfig()
 end, Config.TracerPosition or "Bottom Center")
 
 PagePlayers:CreateMultiDropdown("TracerFilters", "Roles", {"Murderer", "Sheriff", "Hero", "Innocent", "Dead/None"}, function(flags)
     for r, _ in pairs(Config.TracerRoles) do Config.TracerRoles[r] = flags[r] == true end; saveConfig()
 end)
 
-local DropHighlight = KillerHub.Elements["HighlightFilters"]
-local DropLimbChams = KillerHub.Elements["LimbChamsFilters"]
-local DropBox       = KillerHub.Elements["BoxFilters"]
-local DropName      = KillerHub.Elements["NameFilters"]
-local DropTracer    = KillerHub.Elements["TracerFilters"]
-
 PagePlayers:CreateSection("Dropped Gun ESP")
-local ToggleGunCham = PagePlayers:CreateToggle("EspGunCham", "Gun Cham", function(val) Config.GunCham = val; saveConfig() end)
-local ToggleGunName = PagePlayers:CreateToggle("EspGunName", "Gun Name", function(val) Config.GunName = val; saveConfig() end)
+local ToggleGunCham   = PagePlayers:CreateToggle("EspGunCham", "Gun Cham", function(val) Config.GunCham = val; saveConfig() end)
+local ToggleGunName   = PagePlayers:CreateToggle("EspGunName", "Gun Name", function(val) Config.GunName = val; saveConfig() end)
 local ToggleGunTracer = PagePlayers:CreateToggle("EspGunTracer", "Gun Tracer", function(val) Config.GunTracer = val; saveConfig() end)
 
 PagePlayers:CreateSection("Role Colors Customization")
-local function createRoleColorPicker(roleKey, visualName)
+local function createRoleColorPicker(page, roleKey, visualName)
     local defaultRGB = Config.CustomColorsRGB[roleKey]
     local defaultColor3 = Color3_fromRGB(defaultRGB[1], defaultRGB[2], defaultRGB[3])
     
-    PagePlayers:CreateToggleColorPicker(
+    page:CreateToggleColorPicker(
         "CP_Active_" .. roleKey, "CP_Color_" .. roleKey, visualName, defaultColor3,
         function(estado) Config.CustomColorsActive[roleKey] = estado; saveConfig() end,
         function(colorSeleccionado)
@@ -183,12 +196,13 @@ local function createRoleColorPicker(roleKey, visualName)
         end
     )
 end
-createRoleColorPicker("Murderer", "Murderer")
-createRoleColorPicker("Sheriff", "Sheriff")
-createRoleColorPicker("Hero", "Hero")
-createRoleColorPicker("Innocent", "Innocent")
-createRoleColorPicker("Dead/None", "Dead / Spectators")
-createRoleColorPicker("GunDrop", "Dropped Gun")
+
+createRoleColorPicker(PagePlayers, "Murderer", "Murderer")
+createRoleColorPicker(PagePlayers, "Sheriff", "Sheriff")
+createRoleColorPicker(PagePlayers, "Hero", "Hero")
+createRoleColorPicker(PagePlayers, "Innocent", "Innocent")
+createRoleColorPicker(PagePlayers, "Dead/None", "Dead / Spectators")
+createRoleColorPicker(PagePlayers, "GunDrop", "Dropped Gun")
 
 PagePlayers:CreateSection("Settings & Performance")
 local DistanceInput = PagePlayers:CreateInput("EspMaxDistance", "Max Render Distance (Studs)", "400", function(val)
@@ -199,13 +213,45 @@ end)
 local NameSizeSlider = PagePlayers:CreateSlider("EspNameSize", "Name Size", 10, 30, function(val) Config.NameSize = math_floor(val); saveConfig() end)
 local GunNameSizeSlider = PagePlayers:CreateSlider("EspGunNameSize", "Gun Name Size", 10, 30, function(val) Config.GunNameSize = math_floor(val); saveConfig() end)
 
--- PAGE 2: DUELS ESP
-PageDuels:CreateSection("Duels & Gun vs Gun Team ESP")
-local ToggleDuelESP = PageDuels:CreateToggle("DuelEspMaster", "Enable Duels Mode ESP", function(val) Config.DuelESP = val; saveConfig() end)
-local ToggleDuelHL  = PageDuels:CreateToggle("DuelEspHL", "Highlight ESP", function(val) Config.DuelHighlight = val; saveConfig() end)
+-- ==========================================
+-- PAGE 2: DUELS ESP (MODO DUELOS)
+-- ==========================================
+PageDuels:CreateSection("Duels ESP Options")
+
+local ToggleDuelHighlight = PageDuels:CreateToggleSlider("DuelEspHighlight", "DuelEspHighlightTrans", "Highlight ESP", 0, 100, 
+    function(val) Config.DuelHighlight = val; saveConfig() end,
+    function(val) Config.DuelHighlightTrans = math_floor(val); saveConfig() end
+)
+PageDuels:CreateMultiDropdown("DuelHighlightFilters", "Teams Filter", {"Enemy", "Teammate"}, function(flags)
+    for r, _ in pairs(Config.DuelHighlightRoles) do Config.DuelHighlightRoles[r] = flags[r] == true end; saveConfig()
+end)
+
+local ToggleDuelLimbChams = PageDuels:CreateToggleSlider("DuelEspLimbChams", "DuelEspLimbChamsTrans", "Cham ESP", 0, 100, 
+    function(val) Config.DuelLimbChams = val; saveConfig() end,
+    function(val) Config.DuelLimbChamsTrans = math_floor(val); saveConfig() end
+)
+PageDuels:CreateMultiDropdown("DuelLimbChamsFilters", "Teams Filter", {"Enemy", "Teammate"}, function(flags)
+    for r, _ in pairs(Config.DuelLimbChamsRoles) do Config.DuelLimbChamsRoles[r] = flags[r] == true end; saveConfig()
+end)
+
 local ToggleDuelBox = PageDuels:CreateToggle("DuelEspBox", "Box ESP", function(val) Config.DuelBox = val; saveConfig() end)
-local ToggleDuelName= PageDuels:CreateToggle("DuelEspName", "Name ESP", function(val) Config.DuelName = val; saveConfig() end)
+PageDuels:CreateMultiDropdown("DuelBoxFilters", "Teams Filter", {"Enemy", "Teammate"}, function(flags)
+    for r, _ in pairs(Config.DuelBoxRoles) do Config.DuelBoxRoles[r] = flags[r] == true end; saveConfig()
+end)
+
+local ToggleDuelName = PageDuels:CreateToggle("DuelEspName", "Name ESP", function(val) Config.DuelName = val; saveConfig() end)
+PageDuels:CreateMultiDropdown("DuelNameFilters", "Teams Filter", {"Enemy", "Teammate"}, function(flags)
+    for r, _ in pairs(Config.DuelNameRoles) do Config.DuelNameRoles[r] = flags[r] == true end; saveConfig()
+end)
+
 local ToggleDuelTracer = PageDuels:CreateToggle("DuelEspTracer", "Tracer ESP", function(val) Config.DuelTracer = val; saveConfig() end)
+PageDuels:CreateMultiDropdown("DuelTracerFilters", "Teams Filter", {"Enemy", "Teammate"}, function(flags)
+    for r, _ in pairs(Config.DuelTracerRoles) do Config.DuelTracerRoles[r] = flags[r] == true end; saveConfig()
+end)
+
+PageDuels:CreateSection("Duels Team Colors")
+createRoleColorPicker(PageDuels, "DuelEnemy", "Enemy Team (Rival)")
+createRoleColorPicker(PageDuels, "DuelTeammate", "Our Team (Teammate)")
 
 -- [4] APPLY SAVED CONFIGURATIONS SAFELY
 ToggleName:Set(Config.Name)
@@ -213,42 +259,27 @@ ToggleTracer:Set(Config.Tracer)
 ToggleGunCham:Set(Config.GunCham); ToggleGunName:Set(Config.GunName); ToggleGunTracer:Set(Config.GunTracer); NameSizeSlider:Set(Config.NameSize); GunNameSizeSlider:Set(Config.GunNameSize)
 ToggleBox:Set(Config.Box)
 
-ToggleDuelESP:Set(Config.DuelESP)
-ToggleDuelHL:Set(Config.DuelHighlight)
-ToggleDuelBox:Set(Config.DuelBox)
-ToggleDuelName:Set(Config.DuelName)
-ToggleDuelTracer:Set(Config.DuelTracer)
+if ToggleHighlight then ToggleHighlight:SetToggle(Config.Highlight); ToggleHighlight:SetSlider(Config.HighlightTrans) end
+if ToggleLimbChams then ToggleLimbChams:SetToggle(Config.LimbChams); ToggleLimbChams:SetSlider(Config.LimbChamsTrans) end
 
-if ToggleHighlight then
-    ToggleHighlight:SetToggle(Config.Highlight)
-    ToggleHighlight:SetSlider(Config.HighlightTrans)
-end
-
-if ToggleLimbChams then
-    ToggleLimbChams:SetToggle(Config.LimbChams)
-    ToggleLimbChams:SetSlider(Config.LimbChamsTrans)
-end
-
-if DistanceInput and DistanceInput.Set then DistanceInput:Set(tostring(Config.MaxDistance)) end
-if DropHighlight and DropHighlight.Set then pcall(function() DropHighlight:Set(Config.HighlightRoles) end) end
-if DropLimbChams and DropLimbChams.Set then pcall(function() DropLimbChams:Set(Config.LimbChamsRoles) end) end
-if DropBox and DropBox.Set then pcall(function() DropBox:Set(Config.BoxRoles) end) end
-if DropName and DropName.Set then pcall(function() DropName:Set(Config.NameRoles) end) end
-if DropTracer and DropTracer.Set then pcall(function() DropTracer:Set(Config.TracerRoles) end) end
-
-for roleKey, _ in pairs(Config.CustomColorsActive) do
-    local toggleInstance = getgenv().KillerHub and getgenv().KillerHub.Flags and getgenv().KillerHub.Flags["CP_Active_" .. roleKey]
-    if toggleInstance and toggleInstance.Set then toggleInstance:Set(Config.CustomColorsActive[roleKey]) end
-end
+if ToggleDuelHighlight then ToggleDuelHighlight:SetToggle(Config.DuelHighlight); ToggleDuelHighlight:SetSlider(Config.DuelHighlightTrans) end
+if ToggleDuelLimbChams then ToggleDuelLimbChams:SetToggle(Config.DuelLimbChams); ToggleDuelLimbChams:SetSlider(Config.DuelLimbChamsTrans) end
+if ToggleDuelBox then ToggleDuelBox:Set(Config.DuelBox) end
+if ToggleDuelName then ToggleDuelName:Set(Config.DuelName) end
+if ToggleDuelTracer then ToggleDuelTracer:Set(Config.DuelTracer) end
 
 -- ============================================================================
--- 🧠 CORE ENGINE (INTELLIGENT DUEL DETECTOR)
+-- 🧠 CORE ENGINE (ULTRA-OPTIMIZED V4.5 WITH DUEL DETECTION)
 -- ============================================================================
 
 local playerRoles = {} 
 local playerDeadStatus = {} 
-local duelTeams = {} -- [PlayerName] = "Teammate" or "Enemy"
 local currentGunDrop = nil 
+
+-- Sistema de Duelos Inteligente
+local isDuelActive = false
+local duelRivals = {}
+local duelTeammates = {}
 
 local GunDrawingLine = Drawing.new("Line")
 GunDrawingLine.Thickness = 1
@@ -287,8 +318,9 @@ local function getRoleColor(roleKey, fallbackColor3)
 end
 
 local function getPlayerColorAndStatus(player)
-    local name = player.Name
     local char = player.Character
+    local name = player.Name
+    
     local humanoid = char and char:FindFirstChildOfClass("Humanoid")
     local isDeadInGame = not char or not humanoid or humanoid.Health <= 0
     local isDeadInNetwork = playerDeadStatus[name] == true
@@ -297,17 +329,19 @@ local function getPlayerColorAndStatus(player)
         return getRoleColor("Dead/None", DefaultColors.Dead), "Dead/None"
     end
 
-    -- 🔴 DETECCIÓN DE MODO DUELOS (SOLO SE ACTIVA SI SE DETECTAN JUGADORES EN duelTeams)
-    if Config.DuelESP and duelTeams[name] then
-        local teamType = duelTeams[name]
-        if teamType == "Teammate" then
-            return DefaultColors.Teammate, "Teammate"
-        elseif teamType == "Enemy" then
-            return DefaultColors.Enemy, "Enemy"
+    -- ⚔️ DETECCIÓN DE DUELOS INTEGRA
+    if isDuelActive then
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        local isTeammate = duelTeammates[name] or (root and root:FindFirstChild("TeamMate") ~= nil)
+        
+        if isTeammate then
+            return getRoleColor("DuelTeammate", DefaultColors.DuelTeammate), "DuelTeammate"
+        else
+            return getRoleColor("DuelEnemy", DefaultColors.DuelEnemy), "DuelEnemy"
         end
     end
 
-    -- LÓGICA ESTÁNDAR (PARTIDAS NORMALES MM2)
+    -- 🕵️ MODO MM2 NORMAL
     local backpack = player:FindFirstChild("Backpack")
     local hasKnife = (char and char:FindFirstChild("Knife")) or (backpack and backpack:FindFirstChild("Knife"))
     local hasGun = (char and (char:FindFirstChild("Gun") or char:FindFirstChild("Revolver"))) or 
@@ -333,6 +367,33 @@ local function getPlayerColorAndStatus(player)
     end
 
     return getRoleColor("Innocent", DefaultColors.Innocent), "Innocent"
+end
+
+local function isEspEnabledForRole(espType, status)
+    if status == "DuelEnemy" then
+        return Config.DuelHighlightRoles and (
+            (espType == "Highlight" and Config.DuelHighlight and Config.DuelHighlightRoles["Enemy"]) or
+            (espType == "LimbChams" and Config.DuelLimbChams and Config.DuelLimbChamsRoles["Enemy"]) or
+            (espType == "Box" and Config.DuelBox and Config.DuelBoxRoles["Enemy"]) or
+            (espType == "Name" and Config.DuelName and Config.DuelNameRoles["Enemy"]) or
+            (espType == "Tracer" and Config.DuelTracer and Config.DuelTracerRoles["Enemy"])
+        )
+    elseif status == "DuelTeammate" then
+        return Config.DuelHighlightRoles and (
+            (espType == "Highlight" and Config.DuelHighlight and Config.DuelHighlightRoles["Teammate"]) or
+            (espType == "LimbChams" and Config.DuelLimbChams and Config.DuelLimbChamsRoles["Teammate"]) or
+            (espType == "Box" and Config.DuelBox and Config.DuelBoxRoles["Teammate"]) or
+            (espType == "Name" and Config.DuelName and Config.DuelNameRoles["Teammate"]) or
+            (espType == "Tracer" and Config.DuelTracer and Config.DuelTracerRoles["Teammate"])
+        )
+    else
+        if espType == "Highlight" then return Config.Highlight and Config.HighlightRoles[status] == true end
+        if espType == "LimbChams" then return Config.LimbChams and Config.LimbChamsRoles[status] == true end
+        if espType == "Box" then return Config.Box and Config.BoxRoles[status] == true end
+        if espType == "Name" then return Config.Name and Config.NameRoles[status] == true end
+        if espType == "Tracer" then return Config.Tracer and Config.TracerRoles[status] == true end
+    end
+    return false
 end
 
 local function clearPlayerESP(char)
@@ -369,18 +430,17 @@ local function updatePlayerESP(player)
     end
     
     local color, currentStatus = getPlayerColorAndStatus(player)
-    local isDuelMode = Config.DuelESP and (currentStatus == "Teammate" or currentStatus == "Enemy")
 
     -- Cham ESP
     local limbFolder = char:FindFirstChild("KH_LimbChams")
-    if not isDuelMode and Config.LimbChams and Config.LimbChamsRoles[currentStatus] == true then
+    if isEspEnabledForRole("LimbChams", currentStatus) then
         if not limbFolder then
             limbFolder = Instance_new("Folder")
             limbFolder.Name = "KH_LimbChams"
             limbFolder.Parent = char
         end
         
-        local currentTrans = Config.LimbChamsTrans / 100
+        local currentTrans = (isDuelActive and Config.DuelLimbChamsTrans or Config.LimbChamsTrans) / 100
         for _, part in ipairs(char:GetChildren()) do
             if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
                 local adornName = part.Name .. "_Adorn"
@@ -404,9 +464,7 @@ local function updatePlayerESP(player)
 
     -- BOX 2D ESP
     local box = root:FindFirstChild("KH_2DBox")
-    local allowBox = (isDuelMode and Config.DuelBox) or (not isDuelMode and Config.Box and Config.BoxRoles[currentStatus] == true)
-    
-    if allowBox then
+    if isEspEnabledForRole("Box", currentStatus) then
         if not box then
             box = Instance_new("BillboardGui"); box.Name = "KH_2DBox"; box.Size = UDim2_new(4.4, 0, 5.9, 0); box.AlwaysOnTop = true
             local frame = Instance_new("Frame"); frame.Size = UDim2_new(1, 0, 1, 0); frame.BackgroundTransparency = 1; frame.Parent = box
@@ -420,9 +478,7 @@ local function updatePlayerESP(player)
 
     -- NAME ESP
     local nameTag = root:FindFirstChild("KH_Name")
-    local allowName = (isDuelMode and Config.DuelName) or (not isDuelMode and Config.Name and Config.NameRoles[currentStatus] == true)
-
-    if allowName then
+    if isEspEnabledForRole("Name", currentStatus) then
         if not nameTag then
             nameTag = Instance_new("BillboardGui"); nameTag.Name = "KH_Name"; nameTag.Size = UDim2_new(0, 160, 0, 40); nameTag.StudsOffset = Vector3_new(0, 4.0, 0); nameTag.AlwaysOnTop = true
             local label = Instance_new("TextLabel"); label.Name = "Display"; label.Size = UDim2_new(1, 0, 1, 0); label.BackgroundTransparency = 1
@@ -438,7 +494,7 @@ local function updatePlayerESP(player)
 
     -- HIGHLIGHT ENGINE
     local hl = char:FindFirstChild("KH_Highlight")
-    local allowHighlight = (isDuelMode and Config.DuelHighlight) or (not isDuelMode and Config.Highlight and Config.HighlightRoles[currentStatus] == true)
+    local allowHighlight = isEspEnabledForRole("Highlight", currentStatus)
 
     if allowHighlight then
         if not hl then
@@ -446,7 +502,7 @@ local function updatePlayerESP(player)
         end
         hl.Adornee = char
         hl.FillColor = color
-        hl.FillTransparency = Config.HighlightTrans / 100 
+        hl.FillTransparency = (isDuelActive and Config.DuelHighlightTrans or Config.HighlightTrans) / 100 
         hl.OutlineColor = color
         hl.OutlineTransparency = 0 
     else
@@ -500,35 +556,11 @@ local function updateGunESP()
 end
 
 -- ============================================================================
--- 📡 EVENTOS Y CONEXIONES CON EL SERVIDOR DE MM2
+-- 📡 EVENTS & REMOTES LISTENERS (MM2 STANDARD + DUELS)
 -- ============================================================================
-
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 local PlayerDataChanged = ReplicatedStorage:FindFirstChild("PlayerDataChanged", true)
 local RoundStart = ReplicatedStorage:FindFirstChild("RoundStart", true)
-local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-local CustomGames = Remotes and Remotes:FindFirstChild("CustomGames")
-local DuelStarted = CustomGames and CustomGames:FindFirstChild("DuelStarted")
-
--- CONEXIÓN INTELIGENTE A EVENTO DE DUELOS
-if DuelStarted then
-    DuelStarted.OnClientEvent:Connect(function(duelData)
-        table.clear(duelTeams)
-        if type(duelData) == "table" then
-            local myName = LocalPlayer.Name
-            local myTeamName = duelData.Team1 and duelData.Team1[myName] and "Team1" or (duelData.Team2 and duelData.Team2[myName] and "Team2" or nil)
-            local enemyTeamName = myTeamName == "Team1" and "Team2" or "Team1"
-
-            if myTeamName then
-                for pName, _ in pairs(duelData[myTeamName] or {}) do
-                    if pName ~= myName then duelTeams[pName] = "Teammate" end
-                end
-                for pName, _ in pairs(duelData[enemyTeamName] or {}) do
-                    duelTeams[pName] = "Enemy"
-                end
-            end
-        end
-    end)
-end
 
 local function parsePlayerData(tabla)
     if type(tabla) == "table" then
@@ -542,24 +574,18 @@ local function parsePlayerData(tabla)
 end
 
 if PlayerDataChanged and PlayerDataChanged:IsA("RemoteEvent") then PlayerDataChanged.OnClientEvent:Connect(parsePlayerData) end
-
 if RoundStart and RoundStart:IsA("RemoteEvent") then
     RoundStart.OnClientEvent:Connect(function(arg1, arg2)
-        table.clear(playerRoles)
-        table.clear(playerDeadStatus)
-        currentGunDrop = nil 
-        parsePlayerData(arg2)
-        parsePlayerData(arg1)
+        table.clear(playerRoles); table.clear(playerDeadStatus); currentGunDrop = nil 
+        parsePlayerData(arg2); parsePlayerData(arg1)
     end)
 end
 
 local RoundOver = ReplicatedStorage:FindFirstChild("RoundOver", true) or ReplicatedStorage:FindFirstChild("SnowballRoundOver", true)
 if RoundOver and RoundOver:IsA("RemoteEvent") then
     RoundOver.OnClientEvent:Connect(function()
-        table.clear(playerRoles)
-        table.clear(playerDeadStatus)
-        table.clear(duelTeams) -- Vuelve al modo normal para ahorrar recursos
-        currentGunDrop = nil
+        isDuelActive = false
+        table.clear(playerRoles); table.clear(playerDeadStatus); table.clear(duelRivals); table.clear(duelTeammates); currentGunDrop = nil
         local allPlayers = playersGetPlayers(Players)
         for i = 1, #allPlayers do 
             local plr = allPlayers[i]
@@ -568,14 +594,54 @@ if RoundOver and RoundOver:IsA("RemoteEvent") then
     end)
 end
 
+-- DETECCIÓN DE EVENTOS DE DUELOS MM2
+if Remotes then
+    local CustomGames = Remotes:FindFirstChild("CustomGames")
+    local Gameplay = Remotes:FindFirstChild("Gameplay")
+
+    if CustomGames and CustomGames:FindFirstChild("DuelStarted") then
+        CustomGames.DuelStarted.OnClientEvent:Connect(function(duelData)
+            table.clear(duelRivals)
+            table.clear(duelTeammates)
+            isDuelActive = true
+
+            if type(duelData) == "table" then
+                local myName = LocalPlayer.Name
+                local myTeamKey = (duelData.Team1 and duelData.Team1[myName]) and "Team1" or ((duelData.Team2 and duelData.Team2[myName]) and "Team2" or nil)
+                
+                if myTeamKey then
+                    local rivalTeamKey = (myTeamKey == "Team1") and "Team2" or "Team1"
+                    if duelData[myTeamKey] then
+                        for name, _ in pairs(duelData[myTeamKey]) do
+                            if name ~= myName then duelTeammates[name] = true end
+                        end
+                    end
+                    if duelData[rivalTeamKey] then
+                        for name, _ in pairs(duelData[rivalTeamKey]) do
+                            duelRivals[name] = true
+                        end
+                    end
+                end
+            end
+        end)
+    end
+
+    if Gameplay and Gameplay:FindFirstChild("RoundEndFade") then
+        Gameplay.RoundEndFade.OnClientEvent:Connect(function()
+            isDuelActive = false
+            table.clear(duelRivals)
+            table.clear(duelTeammates)
+        end)
+    end
+end
+
 Players.PlayerRemoving:Connect(function(player)
-    playerRoles[player.Name] = nil
-    playerDeadStatus[player.Name] = nil
-    duelTeams[player.Name] = nil
+    playerRoles[player.Name] = nil; playerDeadStatus[player.Name] = nil
+    duelRivals[player.Name] = nil; duelTeammates[player.Name] = nil
     removeTracerLine(player)
 end)
 
--- BUCLE DE ACTUALIZACIÓN (OPTIMIZADO CON task.wait)
+-- OPTIMIZED REFRESH LOOP
 task.spawn(function()
     while true do
         local allPlayers = playersGetPlayers(Players)
@@ -590,7 +656,7 @@ task.spawn(function()
     end
 end)
 
--- ORIGEN DE TRACERS
+-- DYNAMIC TRACER ORIGIN RESOLVER
 local function getTracerOriginPoint(viewportSize, mode)
     if mode == "Top Center" then
         return Vector2_new(viewportSize.X / 2, 0)
@@ -604,7 +670,7 @@ local function getTracerOriginPoint(viewportSize, mode)
     return Vector2_new(viewportSize.X / 2, viewportSize.Y)
 end
 
--- TRACERS ENGINE (RenderStepped para 60+ FPS)
+-- RENDER STEPPED (TRACERS ENGINE)
 RunService.RenderStepped:Connect(function()
     local myChar = LocalPlayer.Character
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -623,18 +689,19 @@ RunService.RenderStepped:Connect(function()
                 
                 if root then
                     local distance = (myRoot.Position - root.Position).Magnitude
-                    local color, currentStatus = getPlayerColorAndStatus(player)
-                    local isDuelMode = Config.DuelESP and (currentStatus == "Teammate" or currentStatus == "Enemy")
-                    local allowTracer = (isDuelMode and Config.DuelTracer) or (not isDuelMode and Config.Tracer and Config.TracerRoles[currentStatus] == true)
-
-                    if allowTracer and distance <= Config.MaxDistance then
-                        local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                        if onScreen then
-                            if not line then line = getTracerLine(player) end
-                            line.From = tracerOrigin
-                            line.To = Vector2_new(screenPos.X, screenPos.Y)
-                            line.Color = color
-                            line.Visible = true
+                    if distance <= Config.MaxDistance then
+                        local color, currentStatus = getPlayerColorAndStatus(player)
+                        if isEspEnabledForRole("Tracer", currentStatus) then
+                            local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                            if onScreen then
+                                if not line then line = getTracerLine(player) end
+                                line.From = tracerOrigin
+                                line.To = Vector2_new(screenPos.X, screenPos.Y)
+                                line.Color = color
+                                line.Visible = true
+                            elseif line then
+                                line.Visible = false
+                            end
                         elseif line then
                             line.Visible = false
                         end
@@ -669,7 +736,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- AUTOCLEANUP AL CERRAR
 CoreGui.ChildRemoved:Connect(function(child)
     if child.Name == "KillerHub" then 
         GunDrawingLine:Remove()
@@ -681,7 +747,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.7 - SHERIFF SUITE (NATIVE STABILIZER & SMOOTH Y)
+-- 👾 KILLER HUB | ENGINE V12.7 - SHERIFF SUITE (MM2 DUELOS & NORMAL OPTIMIZADO)
 -- ============================================================================
 
 if getgenv().__KillerHubSheriff_Loaded then
@@ -863,7 +929,7 @@ KillerHub:AddTask(visTask)
 
 local MurdererDetectado = nil
 local smoothedVelocity = VECTOR_ZERO
-local smoothedVisualY = 0 -- Búfer anti-temblores para el eje Y visual
+local smoothedVisualY = 0 
 local lastTargetChar = nil
 local emaDeltaTime = 0.016 
 local playerRoles = {}
@@ -912,12 +978,23 @@ end
 
 local function setTarget(nt) currentTarget = nt end
 
+-- Normalizador universal de nombres de equipo
+local function getNormalizedTeam(plr)
+    if not plr then return nil end
+    local dt = duelTeams[plr.Name]
+    if dt then return tostring(dt) end
+    if plr.Team then return plr.Team.Name end
+    return nil
+end
+
+-- Universal MM2 Player Data Parser
 local function parsePlayerData(t)
     if type(t) == "table" then
         for name, data in pairs(t) do
             if type(data) == "table" then
                 if data.Role then playerRoles[name] = data.Role end
                 if data.Dead ~= nil then playerDeadStatus[name] = data.Dead end
+                if data.Team then duelTeams[name] = data.Team end
             end
         end
     end
@@ -928,51 +1005,57 @@ if PlayerDataChanged and PlayerDataChanged:IsA("RemoteEvent") then
     KillerHub:AddTask(PlayerDataChanged.OnClientEvent:Connect(parsePlayerData)) 
 end
 
--- Remote Detector for Duels
-local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-local CustomGames = Remotes and Remotes:FindFirstChild("CustomGames")
-local DuelStarted = CustomGames and CustomGames:FindFirstChild("DuelStarted")
-
-if DuelStarted then
-    KillerHub:AddTask(DuelStarted.OnClientEvent:Connect(function(duelData)
-        table.clear(duelTeams)
-        if type(duelData) == "table" then
-            local myName = LocalPlayer.Name
-            local myTeamName = duelData.Team1 and duelData.Team1[myName] and "Team1" or (duelData.Team2 and duelData.Team2[myName] and "Team2" or nil)
-            local enemyTeamName = myTeamName == "Team1" and "Team2" or "Team1"
-
-            if myTeamName then
-                for pName, _ in pairs(duelData[enemyTeamName] or {}) do
-                    duelTeams[pName] = true
+-- Adaptación Duelos MM2
+local function updateDuelState(data)
+    table.clear(duelTeams)
+    if type(data) == "table" then
+        parsePlayerData(data)
+        if data.Teams then
+            for teamName, teamMembers in pairs(data.Teams) do
+                if type(teamMembers) == "table" then
+                    for _, pName in pairs(teamMembers) do
+                        if type(pName) == "string" then duelTeams[pName] = tostring(teamName) end
+                    end
                 end
             end
         end
-    end))
+    end
 end
 
-local RoundStart = ReplicatedStorage:FindFirstChild("RoundStart", true)
-if RoundStart and RoundStart:IsA("RemoteEvent") then
-    KillerHub:AddTask(RoundStart.OnClientEvent:Connect(function(a1, a2)
-        resetWaitState()
-        table.clear(playerRoles) 
-        table.clear(playerDeadStatus) 
-        table.clear(lastPositions)
-        MurdererDetectado = nil 
-        parsePlayerData(a2) 
-        parsePlayerData(a1)
-    end))
-end
-
-local RoundOver = ReplicatedStorage:FindFirstChild("RoundOver", true) or ReplicatedStorage:FindFirstChild("SnowballRoundOver", true)
-if RoundOver and RoundOver:IsA("RemoteEvent") then
-    KillerHub:AddTask(RoundOver.OnClientEvent:Connect(function()
-        resetWaitState()
-        table.clear(duelTeams)
-        table.clear(playerRoles)
-        table.clear(playerDeadStatus)
-        table.clear(lastPositions)
-        MurdererDetectado = nil
-    end))
+-- Eventos de ronda
+for _, rem in pairs(ReplicatedStorage:GetDescendants()) do
+    if rem:IsA("RemoteEvent") then
+        local rName = rem.Name:lower()
+        if rName:find("duel") or rName:find("customgame") then
+            KillerHub:AddTask(rem.OnClientEvent:Connect(function(...)
+                local args = {...}
+                for _, arg in ipairs(args) do
+                    if type(arg) == "table" then updateDuelState(arg) end
+                end
+            end))
+        elseif rName:find("roundstart") or rName:find("gamestart") then
+            KillerHub:AddTask(rem.OnClientEvent:Connect(function(...)
+                resetWaitState()
+                table.clear(playerRoles) 
+                table.clear(playerDeadStatus) 
+                table.clear(lastPositions)
+                MurdererDetectado = nil 
+                local args = {...}
+                for _, arg in ipairs(args) do
+                    if type(arg) == "table" then parsePlayerData(arg) end
+                end
+            end))
+        elseif rName:find("roundover") or rName:find("gameover") or rName:find("roundend") then
+            KillerHub:AddTask(rem.OnClientEvent:Connect(function()
+                resetWaitState()
+                table.clear(duelTeams)
+                table.clear(playerRoles)
+                table.clear(playerDeadStatus)
+                table.clear(lastPositions)
+                MurdererDetectado = nil
+            end))
+        end
+    end
 end
 
 Players.PlayerRemoving:Connect(function(plr)
@@ -1008,28 +1091,62 @@ local function autoUnequipWeapon()
     end
 end
 
+-- ============================================================================
+-- SENSOR DE ENEMIGO ULTRA OPTIMIZADO (DUELOS + MM2 NORMAL)
+-- ============================================================================
 local function getMurderer()
-    local hasDuelEnemies = false
-    for _, _ in pairs(duelTeams) do
-        hasDuelEnemies = true
-        break
-    end
+    local myChar = LocalPlayer.Character
+    local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHrp then return currentTarget end
 
-    if hasDuelEnemies then
-        local myChar = LocalPlayer.Character
-        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
-        local closestEnemy = nil
-        local minDistance = math.huge
+    local myTeam = getNormalizedTeam(LocalPlayer)
+    local isDuelActive = (next(duelTeams) ~= nil)
 
-        for enemyName, _ in pairs(duelTeams) do
-            local pl = Players:FindFirstChild(enemyName)
-            if pl and pl.Character and pl ~= LocalPlayer then
-                local hum = pl.Character:FindFirstChildOfClass("Humanoid")
-                local hrp = pl.Character:FindFirstChild("HumanoidRootPart")
-                local isDead = (hum and hum.Health <= 0) or (playerDeadStatus[enemyName] == true)
+    local closestEnemy = nil
+    local minDistance = math.huge
 
-                if not isDead and hrp then
-                    local dist = myHrp and (hrp.Position - myHrp.Position).Magnitude or 0
+    local allPlayers = Players:GetPlayers()
+    for i = 1, #allPlayers do
+        local pl = allPlayers[i]
+        if pl ~= LocalPlayer and pl.Character then
+            local pName = pl.Name
+            local char = pl.Character
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local isDead = (hum and hum.Health <= 0) or (playerDeadStatus[pName] == true)
+
+            if not isDead and hrp then
+                local isEnemy = false
+                local pRole = playerRoles[pName]
+                local pTeam = getNormalizedTeam(pl)
+
+                -- Modo Duelos: Se comprueba equipo rival explícito
+                if isDuelActive and myTeam and pTeam then
+                    if myTeam ~= pTeam then
+                        isEnemy = true
+                    end
+                -- Modo Normal MM2
+                elseif pRole == "Murderer" or pRole == "Enemy" then
+                    isEnemy = true
+                else
+                    -- Detección por cuchillo sostenido o en mochila
+                    local hasKnife = false
+                    for _, item in pairs(char:GetChildren()) do 
+                        if isMeleeWeapon(item) then hasKnife = true break end 
+                    end
+                    if not hasKnife and pl:FindFirstChild("Backpack") then
+                        for _, item in pairs(pl.Backpack:GetChildren()) do 
+                            if isMeleeWeapon(item) then hasKnife = true break end 
+                        end
+                    end
+                    if hasKnife then
+                        playerRoles[pName] = "Murderer"
+                        isEnemy = true
+                    end
+                end
+
+                if isEnemy then
+                    local dist = (hrp.Position - myHrp.Position).Magnitude
                     if dist < minDistance then
                         minDistance = dist
                         closestEnemy = pl
@@ -1037,67 +1154,15 @@ local function getMurderer()
                 end
             end
         end
-
-        if closestEnemy then
-            setTarget(closestEnemy)
-            return closestEnemy
-        end
     end
 
-    if MurdererDetectado and MurdererDetectado.Parent and MurdererDetectado.Character then
-        local name = MurdererDetectado.Name
-        local char = MurdererDetectado.Character
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not ((hum and hum.Health <= 0) or (playerDeadStatus[name] == true)) and (playerRoles[name] == "Murderer") then
-            setTarget(MurdererDetectado) 
-            return MurdererDetectado
-        else 
-            MurdererDetectado = nil 
-        end
+    if closestEnemy then
+        setTarget(closestEnemy)
+        return closestEnemy
     end
 
-    for name, role in pairs(playerRoles) do
-        if role == "Murderer" then
-            local pl = Players:FindFirstChild(name)
-            if pl and pl.Character and pl ~= LocalPlayer then
-                local hum = pl.Character:FindFirstChildOfClass("Humanoid")
-                if not ((hum and hum.Health <= 0) or (playerDeadStatus[name] == true)) then
-                    MurdererDetectado = pl 
-                    setTarget(pl) 
-                    return pl
-                end
-            end
-        end
-    end
-
-    local now = os_clock()
-    if now - lastScanTime > 0.4 then
-        lastScanTime = now
-        local potentialMurderer = nil
-        local allPlayers = Players:GetPlayers()
-        for i = 1, #allPlayers do
-            local player = allPlayers[i]
-            if player ~= LocalPlayer and player.Parent ~= nil and player.Character then
-                local name = player.Name
-                local char = player.Character
-                local hasKnife = false
-                for _, item in pairs(char:GetChildren()) do if isMeleeWeapon(item) then hasKnife = true break end end
-                if not hasKnife and player:FindFirstChild("Backpack") then
-                    for _, item in pairs(player.Backpack:GetChildren()) do if isMeleeWeapon(item) then hasKnife = true break end end
-                end
-                if hasKnife then
-                    playerRoles[name] = "Murderer"
-                    if not ((char:FindFirstChildOfClass("Humanoid") and char:FindFirstChildOfClass("Humanoid").Health <= 0) or (playerDeadStatus[name] == true)) then
-                        potentialMurderer = player 
-                        break
-                    end
-                end
-            end
-        end
-        if potentialMurderer then MurdererDetectado = potentialMurderer else setTarget(nil) end
-    end
-
-    return currentTarget
+    setTarget(nil)
+    return nil
 end
 
 -- Raycasting Params
@@ -1265,7 +1330,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine
+-- Prediction Engine (Sin modificaciones matemáticas/físicas)
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1282,7 +1347,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
     local walkSpeed = (humanoid.WalkSpeed > 0) and humanoid.WalkSpeed or 16
 
-    -- Detector de Desplazamiento Real (Anti-Lag & Anti-Exploit Falsos Positivos)
     local calculatedVelY = rawPhysicsVel.Y
     local realDisplacementSpeed = 0
     local lastData = lastPositions[targetChar]
@@ -1341,7 +1405,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local isStopping = (moveMag < 0.1 and rawVelocity.Magnitude < 2)
     local isStarting = (moveMag > 0.1 and smoothedVelocity.Magnitude < 2)
 
-    -- Inertial Stabilizer Nativo (Adaptativo según FPS)
     local vSmoothAlpha = 0.35
     if isStopping then 
         vSmoothAlpha = 0.80
@@ -1414,7 +1477,6 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local finalPredWithY = targetPosition + horizontalShift + verticalShift
     local predXYExaggerated = targetPosition + (horizontalShift * 1.8) + verticalShift
     
-    -- Filtro de Suavizado Vertical Exponencial para Lead Time Prediction (3.6x)
     local rawVisualY = math_clamp(verticalShift.Y * 3.6, -14, 14)
     local yLerpAlpha = math_clamp(12 * activeDT, 0.08, 0.28)
     smoothedVisualY = smoothedVisualY + (rawVisualY - smoothedVisualY) * yLerpAlpha
@@ -1693,7 +1755,7 @@ executeActualShoot = function(targetChar, bestPart)
                     horizDir = horizDir.Unit
                 end
 
-                local spawnOrigin = finalPredictedPos - (horizDir * 1.5)
+                local spawnOrigin = finalPredictedPos - (horizDir * 0.9)
                 originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
             end
 
@@ -1886,8 +1948,13 @@ SubLabel.Name = "SubTimerLabel"
 SubLabel.Size = udim2New(1, 0, 0.18, 0)
 SubLabel.Position = udim2New(0, 0, 0.74, 0)
 SubLabel.BackgroundTransparency = 1
-SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
-SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton -- <--- CORREGIDO
+SubLabel.Text = ""
+SubLabel.TextColor3 = color3RGB(255, 255, 255)
+SubLabel.TextSize = 12
+SubLabel.Font = Enum.Font.GothamBold
+SubLabel.TextScaled = true
+SubLabel.ZIndex = ShootButton.ZIndex + 2
+SubLabel.Parent = ShootButton
 
 local SubConstraint = Instance.new("UITextSizeConstraint")
 SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
@@ -2002,7 +2069,7 @@ if WeaponService then
     end
 end
 --==============================================================================
--- 🎯 MÓDULO FLICK SHOOT (OPTIMIZADO PARA GAMA BAJA / ZERO-LAG)
+-- 🎯 MÓDULO FLICK SHOOT (REQUISITO DE SHIFT LOCK Y TIEMPO +10%)
 --==============================================================================
 
 task.spawn(function()
@@ -2023,77 +2090,98 @@ task.spawn(function()
         autoShiftLockEnabled = estado
     end, false)
 
-    -- Obtener controlador nativo de Shift Lock
-    local function GetMouseLockController()
-        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-        if not playerScripts then return nil end
-        local playerModule = playerScripts:FindFirstChild("PlayerModule")
-        if playerModule then
-            local success, cameraModule = pcall(require, playerModule)
-            if success and cameraModule and cameraModule.cameras then
-                return cameraModule.cameras.activeMouseLockController
-            end
-        end
-        return nil
-    end
+    -- Función para obtener o forzar el estado de Shift Lock usando la estructura de tu script
+    local function HandleShiftLock()
+        local cameraModule = require(LocalPlayer.PlayerGui:WaitForChild("PlayerModule", 2) or game:GetService("Players").LocalPlayer.PlayerScripts:WaitForChild("PlayerModule")).cameras
+        local controller = cameraModule and cameraModule.activeMouseLockController
 
-    local function ForceEnableShiftLock()
-        if not autoShiftLockEnabled then return end
-        local mouseLockController = GetMouseLockController()
-        if mouseLockController and not mouseLockController.isMouseLocked then
-            if mouseLockController.OnMouseLockToggled then
-                mouseLockController:OnMouseLockToggled()
-            elseif mouseLockController.EnableMouseLock then
-                mouseLockController:EnableMouseLock(true)
+        -- Si el auto shift lock está activo y no está encendido, lo activa invocando la función nativa
+        if autoShiftLockEnabled then
+            if typeof(triggerMouseLock) == "function" then
+                triggerMouseLock(true)
+            elseif controller and not controller.isMouseLocked then
+                controller:OnMouseLockToggled()
             end
         end
+
+        -- Verificar si el Shift Lock está actualmente activo
+        if controller then
+            return controller.isMouseLocked
+        end
+
+        return false
     end
 
     local function DoFlickShoot()
-        -- Salida inmediata para proteger la CPU en móviles gama baja
         if not flickEnabled or isFlicking then return end
 
-        -- 1. Validar si tiene arma en inventario/personaje
+        -- 1. Validar / Activar Shift Lock
+        local isShiftLocked = HandleShiftLock()
+        
+        -- SI EL SHIFT LOCK NO ESTÁ ENCENDIDO, NO HACE EL FLICK
+        if not isShiftLocked then return end
+
+        -- 2. Validar si tiene arma disponible
         local gun = getGunLocation()
         if not gun then return end
 
-        -- 2. Validar objetivo (Murderer)
+        -- 3. Obtener Murderer desde el sistema de cache
         local murderer = getMurderer()
         if not murderer or not murderer.Character then return end
 
         local targetChar = murderer.Character
-        local targetPart = (getSmartTargetPart and getSmartTargetPart(targetChar)) 
-            or targetChar:FindFirstChild("Head") 
-            or targetChar:FindFirstChild("HumanoidRootPart")
-            
+        local hum = targetChar:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+
+        -- 4. Obtener la parte objetivo
+        local targetPart = nil
+        if typeof(getSmartTargetPart) == "function" then
+            targetPart = getSmartTargetPart(targetChar)
+        end
+        if not targetPart then
+            targetPart = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Head")
+        end
         if not targetPart then return end
 
         isFlicking = true
 
-        -- Activar Shift Lock solo si el usuario activó la opción
-        ForceEnableShiftLock()
-
-        -- 3. Posicionamiento instantáneo de cámara (Rendimiento máximo)
+        -- 5. Guardar CFrame original de la cámara
         local originalCFrame = Camera.CFrame
-        local predictedPos = (getPredictedPosition and getPredictedPosition(targetChar, targetPart)) or targetPart.Position
-        local targetCFrame = cframeNew(originalCFrame.Position, predictedPos)
 
-        -- Giro 360 instantáneo
-        Camera.CFrame = targetCFrame
+        -- 6. Obtener posición predicha
+        local targetPos = targetPart.Position
+        if typeof(getPredictedPosition) == "function" then
+            local pred = getPredictedPosition(targetChar, targetPart)
+            if pred then targetPos = pred end
+        end
 
-        -- Disparo
-        fireAtMurdererDirectly()
+        -- 7. Giro instantáneo hacia el objetivo
+        Camera.CFrame = CFrame.new(originalCFrame.Position, targetPos)
 
-        -- Sincronizar retorno exacto en el siguiente frame de renderizado
-        RunService.RenderStepped:Wait()
+        -- 8. Disparo directo
+        if typeof(fireAtMurdererDirectly) == "function" then
+            fireAtMurdererDirectly()
+        end
+
+        -- 9. Pausa de renderizado (+10% de tiempo para fluidez perfecta)
+        task.wait(0.033)
+
+        -- 10. Retornar cámara
         Camera.CFrame = originalCFrame
 
         isFlicking = false
     end
 
-    -- Conexión única y limpia para evitar doble ejecución táctil
+    -- Conexión de eventos limpia y compatible
     if ShootButton then
-        ShootButton.Activated:Connect(DoFlickShoot)
+        if ShootButton:IsA("GuiButton") then
+            ShootButton.MouseButton1Click:Connect(DoFlickShoot)
+        end
+        ShootButton.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                DoFlickShoot()
+            end
+        end)
     end
 end)
 
