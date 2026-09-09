@@ -2001,5 +2001,100 @@ if WeaponService then
         end
     end
 end
+--==============================================================================
+-- 🎯 MÓDULO FLICK SHOOT (OPTIMIZADO PARA GAMA BAJA / ZERO-LAG)
+--==============================================================================
+
+task.spawn(function()
+    local TargetTab = PageOthers or TabSheriff
+    if not TargetTab then return end
+
+    TargetTab:CreateSection("Flick Shoot")
+
+    local flickEnabled = false
+    local autoShiftLockEnabled = false
+    local isFlicking = false
+
+    TargetTab:CreateToggle("Flick_Enabled", "Activar Flick Shoot 360", function(estado)
+        flickEnabled = estado
+    end, false)
+
+    TargetTab:CreateToggle("Flick_AutoShiftLock", "Auto Shift Lock opcional", function(estado)
+        autoShiftLockEnabled = estado
+    end, false)
+
+    -- Obtener controlador nativo de Shift Lock
+    local function GetMouseLockController()
+        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+        if not playerScripts then return nil end
+        local playerModule = playerScripts:FindFirstChild("PlayerModule")
+        if playerModule then
+            local success, cameraModule = pcall(require, playerModule)
+            if success and cameraModule and cameraModule.cameras then
+                return cameraModule.cameras.activeMouseLockController
+            end
+        end
+        return nil
+    end
+
+    local function ForceEnableShiftLock()
+        if not autoShiftLockEnabled then return end
+        local mouseLockController = GetMouseLockController()
+        if mouseLockController and not mouseLockController.isMouseLocked then
+            if mouseLockController.OnMouseLockToggled then
+                mouseLockController:OnMouseLockToggled()
+            elseif mouseLockController.EnableMouseLock then
+                mouseLockController:EnableMouseLock(true)
+            end
+        end
+    end
+
+    local function DoFlickShoot()
+        -- Salida inmediata para proteger la CPU en móviles gama baja
+        if not flickEnabled or isFlicking then return end
+
+        -- 1. Validar si tiene arma en inventario/personaje
+        local gun = getGunLocation()
+        if not gun then return end
+
+        -- 2. Validar objetivo (Murderer)
+        local murderer = getMurderer()
+        if not murderer or not murderer.Character then return end
+
+        local targetChar = murderer.Character
+        local targetPart = (getSmartTargetPart and getSmartTargetPart(targetChar)) 
+            or targetChar:FindFirstChild("Head") 
+            or targetChar:FindFirstChild("HumanoidRootPart")
+            
+        if not targetPart then return end
+
+        isFlicking = true
+
+        -- Activar Shift Lock solo si el usuario activó la opción
+        ForceEnableShiftLock()
+
+        -- 3. Posicionamiento instantáneo de cámara (Rendimiento máximo)
+        local originalCFrame = Camera.CFrame
+        local predictedPos = (getPredictedPosition and getPredictedPosition(targetChar, targetPart)) or targetPart.Position
+        local targetCFrame = cframeNew(originalCFrame.Position, predictedPos)
+
+        -- Giro 360 instantáneo
+        Camera.CFrame = targetCFrame
+
+        -- Disparo
+        fireAtMurdererDirectly()
+
+        -- Sincronizar retorno exacto en el siguiente frame de renderizado
+        RunService.RenderStepped:Wait()
+        Camera.CFrame = originalCFrame
+
+        isFlicking = false
+    end
+
+    -- Conexión única y limpia para evitar doble ejecución táctil
+    if ShootButton then
+        ShootButton.Activated:Connect(DoFlickShoot)
+    end
+end)
 
 return KillerHub
