@@ -681,7 +681,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.4 - SHERIFF SUITE (SMART DUELS & SILENT AIM)
+-- 👾 KILLER HUB | ENGINE V12.7 - SHERIFF SUITE (NATIVE STABILIZER & SMOOTH Y)
 -- ============================================================================
 
 if getgenv().__KillerHubSheriff_Loaded then
@@ -793,6 +793,7 @@ TabSheriff:CreateMultiDropdown("Sheriff_Tracers", "Tracers", {
     "Tracer Prediction", 
     "Min Tracer Prediction", 
     "Lead Time", 
+    "Lead Time Prediction",
     "Confirm wall check", 
     "Prediction X/Y offset"
 }, function() end)
@@ -801,9 +802,6 @@ local cachedShootButton, cachedScreenGui
 TabSheriff:CreateSlider("Sheriff_BtnSize", "Button Size", 50, 200, function(val)
     if cachedShootButton then cachedShootButton.Size = udim2New(0, val, 0, val) end
 end, 95)
-
-TabSheriff:CreateSection("Stabilizers")
-TabSheriff:CreateToggle("Sheriff_InertialStab", "Inertial Stabilizer", function() end)
 
 local checkWeaponVisibility
 TabSheriff:CreateSection("Interface")
@@ -865,11 +863,12 @@ KillerHub:AddTask(visTask)
 
 local MurdererDetectado = nil
 local smoothedVelocity = VECTOR_ZERO
+local smoothedVisualY = 0 -- Búfer anti-temblores para el eje Y visual
 local lastTargetChar = nil
 local emaDeltaTime = 0.016 
 local playerRoles = {}
 local playerDeadStatus = {}
-local duelTeams = {} -- [PlayerName] = true (Si es enemigo en duelo)
+local duelTeams = {}
 local currentTarget = nil
 local lastPositions = {} 
 local handLineIsBlocked = false 
@@ -929,7 +928,7 @@ if PlayerDataChanged and PlayerDataChanged:IsA("RemoteEvent") then
     KillerHub:AddTask(PlayerDataChanged.OnClientEvent:Connect(parsePlayerData)) 
 end
 
--- SISTEMA DE DUELOS (REMOTE DETECTOR)
+-- Remote Detector for Duels
 local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
 local CustomGames = Remotes and Remotes:FindFirstChild("CustomGames")
 local DuelStarted = CustomGames and CustomGames:FindFirstChild("DuelStarted")
@@ -968,7 +967,7 @@ local RoundOver = ReplicatedStorage:FindFirstChild("RoundOver", true) or Replica
 if RoundOver and RoundOver:IsA("RemoteEvent") then
     KillerHub:AddTask(RoundOver.OnClientEvent:Connect(function()
         resetWaitState()
-        table.clear(duelTeams) -- Limpia el modo duelo para no gastar recursos
+        table.clear(duelTeams)
         table.clear(playerRoles)
         table.clear(playerDeadStatus)
         table.clear(lastPositions)
@@ -1009,9 +1008,7 @@ local function autoUnequipWeapon()
     end
 end
 
--- DETECTOR INTELIGENTE DE OBJETIVOS (SOPORTA DUELOS Y PARTIDA NORMAL)
 local function getMurderer()
-    -- 🎯 MODO DUELOS: Si hay enemigos registrados en duelTeams
     local hasDuelEnemies = false
     for _, _ in pairs(duelTeams) do
         hasDuelEnemies = true
@@ -1047,7 +1044,6 @@ local function getMurderer()
         end
     end
 
-    -- 🕵️ MODO NORMAL: Detección estándar de MM2
     if MurdererDetectado and MurdererDetectado.Parent and MurdererDetectado.Character then
         local name = MurdererDetectado.Name
         local char = MurdererDetectado.Character
@@ -1271,10 +1267,10 @@ end
 
 -- Prediction Engine
 local function getPredictedPosition(targetChar, targetPart, customDelta)
-    if not targetChar or not targetPart then return nil, nil, nil, nil end
+    if not targetChar or not targetPart then return nil, nil, nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
     local humanoid = targetChar:FindFirstChildOfClass("Humanoid")
-    if not hrp or not humanoid or humanoid.Health <= 0 then return nil, nil, nil, nil end
+    if not hrp or not humanoid or humanoid.Health <= 0 then return nil, nil, nil, nil, nil end
 
     local activeDT = customDelta or emaDeltaTime
     local targetPosition = targetPart.Position
@@ -1286,6 +1282,33 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local rawPhysicsVel = hrp.AssemblyLinearVelocity
     local walkSpeed = (humanoid.WalkSpeed > 0) and humanoid.WalkSpeed or 16
 
+    -- Detector de Desplazamiento Real (Anti-Lag & Anti-Exploit Falsos Positivos)
+    local calculatedVelY = rawPhysicsVel.Y
+    local realDisplacementSpeed = 0
+    local lastData = lastPositions[targetChar]
+    local now = os_clock()
+    
+    if not lastData then
+        lastData = {Pos = hrp.Position, Time = now, RealSpeed = 0}
+        lastPositions[targetChar] = lastData
+    else
+        local dtPrev = now - lastData.Time
+        if dtPrev > 0.008 then
+            local distMoved = (hrp.Position - lastData.Pos).Magnitude
+            realDisplacementSpeed = distMoved / dtPrev
+            lastData.RealSpeed = realDisplacementSpeed
+            
+            local realYVel = (hrp.Position.Y - lastData.Pos.Y) / dtPrev
+            if math_abs(realYVel) > 0.5 then calculatedVelY = realYVel end
+        else
+            realDisplacementSpeed = lastData.RealSpeed or 0
+        end
+        lastData.Pos = hrp.Position
+        lastData.Time = now
+    end
+
+    local isDesynced = (realDisplacementSpeed < 1.2 and (rawPhysicsVel.Magnitude > 3 or moveMag > 0.1))
+
     local actualPhysicsH = vec3New(rawPhysicsVel.X, 0, rawPhysicsVel.Z)
     local realSpeedH = actualPhysicsH.Magnitude
 
@@ -1295,7 +1318,10 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local speedRatio = math_clamp(realSpeedH / math_max(walkSpeed, 1), 0, 1)
     local rawVelocity = actualPhysicsH:Lerp(intendedVel, speedRatio)
 
-    if smoothedVelocity.Magnitude > 0.5 and rawVelocity.Magnitude > 0.5 then
+    if isDesynced then
+        rawVelocity = VECTOR_ZERO
+        smoothedVelocity = VECTOR_ZERO
+    elseif smoothedVelocity.Magnitude > 0.5 and rawVelocity.Magnitude > 0.5 then
         local dotProduct = smoothedVelocity.Unit:Dot(rawVelocity.Unit)
         if dotProduct < 0.85 then
             local dampingFactor = math_clamp((dotProduct + 1) / 1.85, 0.25, 1.0)
@@ -1303,40 +1329,30 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         end
     end
 
-    local calculatedVelY = rawPhysicsVel.Y
-    local lastData = lastPositions[targetChar]
-    local now = os_clock()
-    if not lastData then
-        lastData = {Pos = hrp.Position, Time = now}
-        lastPositions[targetChar] = lastData
-    else
-        local dtPrev = now - lastData.Time
-        if dtPrev > 0.008 then
-            local realYVel = (hrp.Position.Y - lastData.Pos.Y) / dtPrev
-            if math_abs(realYVel) > 0.5 then calculatedVelY = realYVel end
-        end
-        lastData.Pos = hrp.Position
-        lastData.Time = now
-    end
-
     local closeZone = Flag("Sheriff_CloseRange", 6)
     local predictionWeight = distance <= closeZone and 0 or 1
 
     if lastTargetChar ~= targetChar then
         smoothedVelocity = rawVelocity 
+        smoothedVisualY = 0
         lastTargetChar = targetChar
     end
 
     local isStopping = (moveMag < 0.1 and rawVelocity.Magnitude < 2)
     local isStarting = (moveMag > 0.1 and smoothedVelocity.Magnitude < 2)
 
+    -- Inertial Stabilizer Nativo (Adaptativo según FPS)
     local vSmoothAlpha = 0.35
-    if isStopping then vSmoothAlpha = 0.80
-    elseif isStarting then vSmoothAlpha = 0.15
-    elseif Flag("Sheriff_InertialStab", true) then vSmoothAlpha = math_clamp(14 * activeDT, 0.18, 0.50) end
+    if isStopping then 
+        vSmoothAlpha = 0.80
+    elseif isStarting then 
+        vSmoothAlpha = 0.15
+    else 
+        vSmoothAlpha = math_clamp(14 * activeDT, 0.18, 0.50) 
+    end
     
     smoothedVelocity = smoothedVelocity:Lerp(rawVelocity, vSmoothAlpha)
-    if isStopping and smoothedVelocity.Magnitude < 0.3 then smoothedVelocity = VECTOR_ZERO end
+    if (isStopping or isDesynced) and smoothedVelocity.Magnitude < 0.3 then smoothedVelocity = VECTOR_ZERO end
 
     local horizontalShift = VECTOR_ZERO
     local verticalShift = VECTOR_ZERO
@@ -1364,7 +1380,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     horizontalShift = vec3New(smoothedVelocity.X, 0, smoothedVelocity.Z) * effectiveHLatency * predictionWeight
 
-    if vScale > 0 then
+    if vScale > 0 and not isDesynced then
         local isAir = (humanoid.FloorMaterial == Enum.Material.Air)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
@@ -1396,17 +1412,24 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
     local minPredNoY = vec3New(targetPosition.X + (horizontalShift.X * 0.4), targetPosition.Y, targetPosition.Z + (horizontalShift.Z * 0.4))
 
     local finalPredWithY = targetPosition + horizontalShift + verticalShift
-    
     local predXYExaggerated = targetPosition + (horizontalShift * 1.8) + verticalShift
+    
+    -- Filtro de Suavizado Vertical Exponencial para Lead Time Prediction (3.6x)
+    local rawVisualY = math_clamp(verticalShift.Y * 3.6, -14, 14)
+    local yLerpAlpha = math_clamp(12 * activeDT, 0.08, 0.28)
+    smoothedVisualY = smoothedVisualY + (rawVisualY - smoothedVisualY) * yLerpAlpha
+
+    local finalPred36X = targetPosition + (horizontalShift * 3.6) + vec3New(0, smoothedVisualY, 0)
 
     local floorY = getFloorHeight(hrp, targetChar)
     if floorY then
         local minAllowedY = floorY + (hrp.Size.Y / 2) + 0.15
         if finalPredWithY.Y < minAllowedY then finalPredWithY = vec3New(finalPredWithY.X, minAllowedY, finalPredWithY.Z) end
         if predXYExaggerated.Y < minAllowedY then predXYExaggerated = vec3New(predXYExaggerated.X, minAllowedY, predXYExaggerated.Z) end
+        if finalPred36X.Y < minAllowedY then finalPred36X = vec3New(finalPred36X.X, minAllowedY, finalPred36X.Z) end
     end
 
-    return finalPredWithY, finalPredNoY, minPredNoY, predXYExaggerated
+    return finalPredWithY, finalPredNoY, minPredNoY, predXYExaggerated, finalPred36X
 end
 
 -- Tracers Render Setup
@@ -1419,15 +1442,19 @@ PredictionLine.Color = color3RGB(255, 35, 35); PredictionLine.Thickness = 2.0; P
 local LeadTimeLine = Drawing.new("Line")
 LeadTimeLine.Color = color3RGB(35, 255, 35); LeadTimeLine.Thickness = 1.8; LeadTimeLine.Transparency = 1.0; LeadTimeLine.ZIndex = 7
 
+local LeadTimePredLine = Drawing.new("Line")
+LeadTimePredLine.Color = color3RGB(35, 255, 35); LeadTimePredLine.Thickness = 1.8; LeadTimePredLine.Transparency = 1.0; LeadTimePredLine.ZIndex = 8
+
 local ConfirmWallLine = Drawing.new("Line")
 ConfirmWallLine.Color = color3RGB(0, 0, 0); ConfirmWallLine.Thickness = 2.0; ConfirmWallLine.Transparency = 1.0; ConfirmWallLine.ZIndex = 8
 
 local PredictionXYLine = Drawing.new("Line")
-PredictionXYLine.Color = color3RGB(210, 80, 255); PredictionXYLine.Thickness = 2.0; PredictionXYLine.Transparency = 1.0; PredictionXYLine.ZIndex = 9
+PredictionXYLine.Color = color3RGB(170, 0, 255); PredictionXYLine.Thickness = 2.0; PredictionXYLine.Transparency = 1.0; PredictionXYLine.ZIndex = 9
 
 table.insert(_G.KillerHubLines, MinPredictionLine)
 table.insert(_G.KillerHubLines, PredictionLine)
 table.insert(_G.KillerHubLines, LeadTimeLine)
+table.insert(_G.KillerHubLines, LeadTimePredLine)
 table.insert(_G.KillerHubLines, ConfirmWallLine)
 table.insert(_G.KillerHubLines, PredictionXYLine)
 
@@ -1441,6 +1468,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
         PredictionLine.Visible = false
         MinPredictionLine.Visible = false
         LeadTimeLine.Visible = false
+        LeadTimePredLine.Visible = false
         ConfirmWallLine.Visible = false
         PredictionXYLine.Visible = false
         return
@@ -1457,11 +1485,12 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
     local showRed = tracersTable["Tracer Prediction"] == true
     local showBlue = tracersTable["Min Tracer Prediction"] == true
     local showGreen = tracersTable["Lead Time"] == true
+    local showLeadPred = tracersTable["Lead Time Prediction"] == true
     local showConfirmWall = tracersTable["Confirm wall check"] == true
     local showXYOffset = tracersTable["Prediction X/Y offset"] == true
 
     if visualPart then
-        local _, predNoY, minPredNoY, predXYExaggerated = getPredictedPosition(targetChar, visualPart, dt)
+        local _, predNoY, minPredNoY, predXYExaggerated, finalPred36X = getPredictedPosition(targetChar, visualPart, dt)
         local currentViewportSize = Camera.ViewportSize
         local screenOrigin = vec2New(currentViewportSize.X / 2, currentViewportSize.Y)
 
@@ -1484,6 +1513,15 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
                 else PredictionLine.Visible = false end
             else PredictionLine.Visible = false end
 
+            if showLeadPred and finalPred36X then
+                local screenPos, onScreen = worldToViewport(Camera, finalPred36X)
+                if onScreen then
+                    LeadTimePredLine.From = screenOrigin
+                    LeadTimePredLine.To = vec2New(screenPos.X, screenPos.Y)
+                    LeadTimePredLine.Visible = true
+                else LeadTimePredLine.Visible = false end
+            else LeadTimePredLine.Visible = false end
+
             if showXYOffset and predXYExaggerated then
                 local screenPos, onScreen = worldToViewport(Camera, predXYExaggerated)
                 if onScreen then
@@ -1494,14 +1532,17 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
             else PredictionXYLine.Visible = false end
 
             if rightHand and showGreen then
-                local handScreenPos, handOnScreen = worldToViewport(Camera, rightHand.Position)
-                local predScreenPos, predOnScreen = worldToViewport(Camera, predNoY)
+                local targetPosForLead = showLeadPred and finalPred36X or predNoY
+                if targetPosForLead then
+                    local handScreenPos, handOnScreen = worldToViewport(Camera, rightHand.Position)
+                    local predScreenPos, predOnScreen = worldToViewport(Camera, targetPosForLead)
 
-                if handOnScreen and predOnScreen then
-                    LeadTimeLine.Color = color3RGB(35, 255, 35)
-                    LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
-                    LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
-                    LeadTimeLine.Visible = true
+                    if handOnScreen and predOnScreen then
+                        LeadTimeLine.Color = color3RGB(35, 255, 35)
+                        LeadTimeLine.From = vec2New(handScreenPos.X, handScreenPos.Y)
+                        LeadTimeLine.To = vec2New(predScreenPos.X, predScreenPos.Y)
+                        LeadTimeLine.Visible = true
+                    else LeadTimeLine.Visible = false end
                 else LeadTimeLine.Visible = false end
             else LeadTimeLine.Visible = false end
         end
@@ -1530,6 +1571,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
         PredictionLine.Visible = false
         MinPredictionLine.Visible = false
         LeadTimeLine.Visible = false
+        LeadTimePredLine.Visible = false
         ConfirmWallLine.Visible = false
         PredictionXYLine.Visible = false
     end 
@@ -1845,7 +1887,7 @@ SubLabel.Size = udim2New(1, 0, 0.18, 0)
 SubLabel.Position = udim2New(0, 0, 0.74, 0)
 SubLabel.BackgroundTransparency = 1
 SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
-SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton
+SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = SubLabel
 
 local SubConstraint = Instance.new("UITextSizeConstraint")
 SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
@@ -1961,4 +2003,3 @@ if WeaponService then
 end
 
 return KillerHub
-
