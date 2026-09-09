@@ -890,7 +890,7 @@ local function resetWaitState()
     if DecalTexture then
         TweenService:Create(DecalTexture, tweenInfoFast, {
             Position = udim2New(0.5, 0, 0.44, 0),
-            Size = udim2New(0.37, 0, 0.37, 0)
+            Size = udim2New(0.38, 0, 0.38, 0)
         }):Play()
     end
     if Label then
@@ -1590,7 +1590,7 @@ local function startWaitingForSight(initialTarget)
     isWaitingForSight = true
 
     if DecalTexture then
-        TweenService:Create(DecalTexture, tweenInfoFast, {Position = udim2New(0.5, 0, 0.28, 0), Size = udim2New(0.37, 0, 0.37, 0)}):Play()
+        TweenService:Create(DecalTexture, tweenInfoFast, {Position = udim2New(0.5, 0, 0.28, 0), Size = udim2New(0.38, 0, 0.38, 0)}):Play()
     end
     if Label then
         TweenService:Create(Label, tweenInfoFast, {Position = udim2New(0, 0, 0.52, 0), Size = udim2New(1, 0, 0.2, 0)}):Play()
@@ -1858,7 +1858,7 @@ KillerHub:AddTask(tweenRot)
 
 DecalTexture = Instance.new("ImageLabel")
 DecalTexture.Name = "CrosshairDecal"
-DecalTexture.Size = udim2New(0.37, 0, 0.37, 0)
+DecalTexture.Size = udim2New(0.38, 0, 0.38, 0)
 DecalTexture.AnchorPoint = vec2New(0.5, 0.5)
 DecalTexture.Position = udim2New(0.5, 0, 0.44, 0)
 DecalTexture.BackgroundTransparency = 1
@@ -1887,7 +1887,7 @@ SubLabel.Size = udim2New(1, 0, 0.18, 0)
 SubLabel.Position = udim2New(0, 0, 0.74, 0)
 SubLabel.BackgroundTransparency = 1
 SubLabel.Text = ""; SubLabel.TextColor3 = color3RGB(255, 255, 255); SubLabel.TextSize = 12; SubLabel.Font = Enum.Font.GothamBold
-SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = SubLabel
+SubLabel.TextScaled = true; SubLabel.ZIndex = ShootButton.ZIndex + 2; SubLabel.Parent = ShootButton -- <--- CORREGIDO
 
 local SubConstraint = Instance.new("UITextSizeConstraint")
 SubConstraint.MaxTextSize = 13; SubConstraint.MinTextSize = 7; SubConstraint.Parent = SubLabel
