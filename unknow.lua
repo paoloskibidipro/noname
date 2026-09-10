@@ -2069,7 +2069,7 @@ if WeaponService then
     end
 end
 -- ============================================================================
--- 🚀 MÓDULO EXTRA: FLICK SHOOT & AUTO SHIFT LOCK (FIX DEFECTO DE TOGGLE)
+-- 🚀 MÓDULO EXTRA: FLICK SHOOT & AUTO SHIFT LOCK (OPTIMIZADO Y SIN ERRORES)
 -- ============================================================================
 task.spawn(function()
     task.wait(0.1)
@@ -2084,7 +2084,7 @@ task.spawn(function()
     PageOthersObj:CreateToggle("Sheriff_FlickShoot", "Flick Shoot", function() end)
     PageOthersObj:CreateToggle("Sheriff_AutoShiftLock", "Auto Shift Lock", function() end)
 
-    -- Referencias locales directas (Ahorro de lecturas en micro-hilos)
+    -- Referencias locales directas
     local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts", 2)
     local PlayerModule = PlayerScripts and PlayerScripts:FindFirstChild("PlayerModule")
 
@@ -2104,7 +2104,6 @@ task.spawn(function()
         if PlayerModule then
             local success, cameraModule = pcall(function() return require(PlayerModule).cameras end)
             if success and cameraModule and cameraModule.activeMouseLockController then
-                -- Solo dispara si realmente está desactivado
                 if not cameraModule.activeMouseLockController.isMouseLocked then
                     cameraModule.activeMouseLockController:OnMouseLockToggled()
                 end
@@ -2115,36 +2114,33 @@ task.spawn(function()
     -- Ejecutor de la rotación visual del Flick
     local isFlicking = false
     local function performFlickAnimation(targetPos)
-        if isFlicking then return end
+        if isFlicking or not targetPos then return end
 
         local autoShift = Flag("Sheriff_AutoShiftLock", false)
 
-        -- 1. Si Auto Shift Lock está activo, lo ENCIENDE (si ya estaba encendido, NO hace nada y se queda encendido)
+        -- 1. Si Auto Shift Lock está activo, lo activa sin invertir
         if autoShift then
             forceEnableShiftLock()
         end
 
-        -- 2. Verificar de nuevo si el Shift Lock está encendido actualmente
-        local shiftActive = isShiftLockEnabled()
-
-        -- 3. Si NO está encendido el Shift Lock, NO hace la vuelta (Flick canceled)
-        if not shiftActive then return end
+        -- 2. Verificar si Shift Lock está realmente activo
+        if not isShiftLockEnabled() then return end
 
         isFlicking = true
 
         local originalCamCF = Camera.CFrame
-
-        -- Configuración de velocidad optimizada: Ida (0.05s) / Regreso (0.04s)
         local targetCamCF = cframeNew(Camera.CFrame.Position, targetPos)
 
-        local flickInTween = TweenService:Create(Camera, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        -- Animación de Ida (Rotación hacia el objetivo)
+        local flickInTween = TweenService:Create(Camera, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             CFrame = targetCamCF
         })
 
         flickInTween:Play()
         flickInTween.Completed:Wait()
 
-        local flickOutTween = TweenService:Create(Camera, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+        -- Animación de Retorno (Regreso a la vista original)
+        local flickOutTween = TweenService:Create(Camera, TweenInfo.new(0.06, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
             CFrame = originalCamCF
         })
 
@@ -2154,15 +2150,23 @@ task.spawn(function()
         isFlicking = false
     end
 
-    -- Hook directo al ejecutor de disparo
+    -- Hook directo al ejecutor de disparo con firma correcta de predicción
     local baseExecuteShoot = executeActualShoot
     executeActualShoot = function(targetChar, bestPart)
         if Flag("Sheriff_FlickShoot", false) and targetChar and bestPart then
-            local predPos = getPredictedPosition(targetChar, bestPart) or bestPart.Position
+            -- Obtener Ping actual de red para mantener la precisión idéntica al Silent Aim
+            local ping = NetworkClient:GetRealPhysicsFPS() > 0 and (Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000) or 0.05
+            local usePred = Flag("Sheriff_Prediction", true)
+
+            -- Obtener posición predecida EXACTA con los 4 parámetros requeridos
+            local predPos = getPredictedPosition(targetChar, bestPart, ping, usePred) or bestPart.Position
+
             task.spawn(function()
                 performFlickAnimation(predPos)
             end)
         end
+
+        -- Retornar la ejecución original intacta
         return baseExecuteShoot(targetChar, bestPart)
     end
 end)
@@ -2177,10 +2181,10 @@ task.spawn(function()
     if not PageOthersObj then return end
 
     PageOthersObj:CreateSection("Target Selection")
-    
+
     local customTargetEnabled = false
     local selectedPlayerName = "None"
-    
+
     -- Cache para optimización de memoria/CPU
     local cachedTargetPlayer = nil
     local lastTargetCheck = 0
@@ -2190,13 +2194,8 @@ task.spawn(function()
         if not estado then cachedTargetPlayer = nil end
     end, false)
 
-    local targetDropdown = PageOthersObj:CreateDropdown("Sheriff_SelectedPlayer", "Select Player Target", {"None"}, function(sel)
-        selectedPlayerName = sel
-        cachedTargetPlayer = (sel ~= "None") and Players:FindFirstChild(sel) or nil
-    end, "None")
-
-    -- Refresco dinámico ligero (solamente cuando se agregan o quitan jugadores)
-    local function updatePlayerList()
+    -- Obtener lista inicial de jugadores
+    local function getPlayerNamesList()
         local list = {"None"}
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
@@ -2206,14 +2205,30 @@ task.spawn(function()
         return list
     end
 
-    targetDropdown:BindToDynamicList(updatePlayerList, 3) -- Refresco cada 3s es suficiente y ahorra ciclos de CPU
+    -- Crear Dropdown compatible con KillerHub UI
+    local targetDropdown = PageOthersObj:CreateDropdown("Sheriff_SelectedPlayer", "Select Player Target", getPlayerNamesList(), function(sel)
+        selectedPlayerName = sel
+        cachedTargetPlayer = (sel ~= "None") and Players:FindFirstChild(sel) or nil
+    end, "None")
 
-    -- Limpieza de Caché si el jugador objetivo se desconecta
+    -- Refresco ultra-eficiente por eventos (Sin bucles / polling)
+    local function refreshDropdownList()
+        if targetDropdown and targetDropdown.Refresh then
+            targetDropdown:Refresh(getPlayerNamesList(), false)
+        end
+    end
+
+    Players.PlayerAdded:Connect(function()
+        task.wait(0.5)
+        refreshDropdownList()
+    end)
+
     Players.PlayerRemoving:Connect(function(plr)
         if plr.Name == selectedPlayerName then
             selectedPlayerName = "None"
             cachedTargetPlayer = nil
         end
+        refreshDropdownList()
     end)
 
     -- Hook ultra-eficiente al Sensor de Objetivo
@@ -2221,8 +2236,8 @@ task.spawn(function()
     getMurderer = function()
         if customTargetEnabled and selectedPlayerName ~= "None" then
             local now = tick()
-            
-            -- Re-verificación rápida cada 0.1s para no saturar con FindFirstChild
+
+            -- Re-verificación rápida cada 0.1s para evitar llamadas constantes a FindFirstChild
             if not cachedTargetPlayer or not cachedTargetPlayer.Parent or (now - lastTargetCheck > 0.1) then
                 lastTargetCheck = now
                 cachedTargetPlayer = Players:FindFirstChild(selectedPlayerName)
@@ -2233,10 +2248,15 @@ task.spawn(function()
                 if char then
                     local hum = char:FindFirstChildOfClass("Humanoid")
                     local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local isDead = (hum and hum.Health <= 0) or (playerDeadStatus[selectedPlayerName] == true)
+
+                    -- Validación segura de vida / estado de muerte
+                    local isDeadStatus = (typeof(playerDeadStatus) == "table" and playerDeadStatus[selectedPlayerName] == true)
+                    local isDead = (hum and hum.Health <= 0) or isDeadStatus
 
                     if not isDead and hrp then
-                        setTarget(cachedTargetPlayer)
+                        if typeof(setTarget) == "function" then
+                            setTarget(cachedTargetPlayer)
+                        end
                         return cachedTargetPlayer
                     end
                 end
