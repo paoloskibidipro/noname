@@ -1755,7 +1755,7 @@ executeActualShoot = function(targetChar, bestPart)
                     horizDir = horizDir.Unit
                 end
 
-                local spawnOrigin = finalPredictedPos - (horizDir * 0.9)
+                local spawnOrigin = finalPredictedPos - (horizDir * 1.5)
                 originCFrame = cframeNew(spawnOrigin, finalPredictedPos)
             end
 
@@ -2068,120 +2068,182 @@ if WeaponService then
         end
     end
 end
---==============================================================================
--- 🎯 MÓDULO FLICK SHOOT (REQUISITO DE SHIFT LOCK Y TIEMPO +10%)
---==============================================================================
-
+-- ============================================================================
+-- 🚀 MÓDULO EXTRA: FLICK SHOOT & AUTO SHIFT LOCK (FIX DEFECTO DE TOGGLE)
+-- ============================================================================
 task.spawn(function()
-    local TargetTab = PageOthers or TabSheriff
-    if not TargetTab then return end
+    task.wait(0.1)
 
-    TargetTab:CreateSection("Flick Shoot")
+    -- Recuperar UI de KillerHub
+    local TabSheriffObj = KillerHub:GetTab("Sheriff")
+    local PageOthersObj = TabSheriffObj and TabSheriffObj:GetPage("Others")
+    if not PageOthersObj then return end
 
-    local flickEnabled = false
-    local autoShiftLockEnabled = false
-    local isFlicking = false
+    -- Opciones UI
+    PageOthersObj:CreateSection("Flick Shoot Suite")
+    PageOthersObj:CreateToggle("Sheriff_FlickShoot", "Flick Shoot", function() end)
+    PageOthersObj:CreateToggle("Sheriff_AutoShiftLock", "Auto Shift Lock", function() end)
 
-    TargetTab:CreateToggle("Flick_Enabled", "Activar Flick Shoot 360", function(estado)
-        flickEnabled = estado
-    end, false)
+    -- Referencias locales directas (Ahorro de lecturas en micro-hilos)
+    local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts", 2)
+    local PlayerModule = PlayerScripts and PlayerScripts:FindFirstChild("PlayerModule")
 
-    TargetTab:CreateToggle("Flick_AutoShiftLock", "Auto Shift Lock opcional", function(estado)
-        autoShiftLockEnabled = estado
-    end, false)
-
-    -- Función para obtener o forzar el estado de Shift Lock usando la estructura de tu script
-    local function HandleShiftLock()
-        local cameraModule = require(LocalPlayer.PlayerGui:WaitForChild("PlayerModule", 2) or game:GetService("Players").LocalPlayer.PlayerScripts:WaitForChild("PlayerModule")).cameras
-        local controller = cameraModule and cameraModule.activeMouseLockController
-
-        -- Si el auto shift lock está activo y no está encendido, lo activa invocando la función nativa
-        if autoShiftLockEnabled then
-            if typeof(triggerMouseLock) == "function" then
-                triggerMouseLock(true)
-            elseif controller and not controller.isMouseLocked then
-                controller:OnMouseLockToggled()
+    -- Detectar estado real usando la propiedad exacta de Roblox 'isMouseLocked'
+    local function isShiftLockEnabled()
+        if PlayerModule then
+            local success, cameraModule = pcall(function() return require(PlayerModule).cameras end)
+            if success and cameraModule and cameraModule.activeMouseLockController then
+                return cameraModule.activeMouseLockController.isMouseLocked == true
             end
         end
-
-        -- Verificar si el Shift Lock está actualmente activo
-        if controller then
-            return controller.isMouseLocked
-        end
-
-        return false
+        return UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter
     end
 
-    local function DoFlickShoot()
-        if not flickEnabled or isFlicking then return end
-
-        -- 1. Validar / Activar Shift Lock
-        local isShiftLocked = HandleShiftLock()
-        
-        -- SI EL SHIFT LOCK NO ESTÁ ENCENDIDO, NO HACE EL FLICK
-        if not isShiftLocked then return end
-
-        -- 2. Validar si tiene arma disponible
-        local gun = getGunLocation()
-        if not gun then return end
-
-        -- 3. Obtener Murderer desde el sistema de cache
-        local murderer = getMurderer()
-        if not murderer or not murderer.Character then return end
-
-        local targetChar = murderer.Character
-        local hum = targetChar:FindFirstChildOfClass("Humanoid")
-        if not hum or hum.Health <= 0 then return end
-
-        -- 4. Obtener la parte objetivo
-        local targetPart = nil
-        if typeof(getSmartTargetPart) == "function" then
-            targetPart = getSmartTargetPart(targetChar)
+    -- Forzar activación SIN invertir (Sin toggle indeseado)
+    local function forceEnableShiftLock()
+        if PlayerModule then
+            local success, cameraModule = pcall(function() return require(PlayerModule).cameras end)
+            if success and cameraModule and cameraModule.activeMouseLockController then
+                -- Solo dispara si realmente está desactivado
+                if not cameraModule.activeMouseLockController.isMouseLocked then
+                    cameraModule.activeMouseLockController:OnMouseLockToggled()
+                end
+            end
         end
-        if not targetPart then
-            targetPart = targetChar:FindFirstChild("HumanoidRootPart") or targetChar:FindFirstChild("Head")
+    end
+
+    -- Ejecutor de la rotación visual del Flick
+    local isFlicking = false
+    local function performFlickAnimation(targetPos)
+        if isFlicking then return end
+
+        local autoShift = Flag("Sheriff_AutoShiftLock", false)
+
+        -- 1. Si Auto Shift Lock está activo, lo ENCIENDE (si ya estaba encendido, NO hace nada y se queda encendido)
+        if autoShift then
+            forceEnableShiftLock()
         end
-        if not targetPart then return end
+
+        -- 2. Verificar de nuevo si el Shift Lock está encendido actualmente
+        local shiftActive = isShiftLockEnabled()
+
+        -- 3. Si NO está encendido el Shift Lock, NO hace la vuelta (Flick canceled)
+        if not shiftActive then return end
 
         isFlicking = true
 
-        -- 5. Guardar CFrame original de la cámara
-        local originalCFrame = Camera.CFrame
+        local originalCamCF = Camera.CFrame
 
-        -- 6. Obtener posición predicha
-        local targetPos = targetPart.Position
-        if typeof(getPredictedPosition) == "function" then
-            local pred = getPredictedPosition(targetChar, targetPart)
-            if pred then targetPos = pred end
-        end
+        -- Configuración de velocidad optimizada: Ida (0.05s) / Regreso (0.04s)
+        local targetCamCF = cframeNew(Camera.CFrame.Position, targetPos)
 
-        -- 7. Giro instantáneo hacia el objetivo
-        Camera.CFrame = CFrame.new(originalCFrame.Position, targetPos)
+        local flickInTween = TweenService:Create(Camera, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            CFrame = targetCamCF
+        })
 
-        -- 8. Disparo directo
-        if typeof(fireAtMurdererDirectly) == "function" then
-            fireAtMurdererDirectly()
-        end
+        flickInTween:Play()
+        flickInTween.Completed:Wait()
 
-        -- 9. Pausa de renderizado (+10% de tiempo para fluidez perfecta)
-        task.wait(0.033)
+        local flickOutTween = TweenService:Create(Camera, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            CFrame = originalCamCF
+        })
 
-        -- 10. Retornar cámara
-        Camera.CFrame = originalCFrame
+        flickOutTween:Play()
+        flickOutTween.Completed:Wait()
 
         isFlicking = false
     end
 
-    -- Conexión de eventos limpia y compatible
-    if ShootButton then
-        if ShootButton:IsA("GuiButton") then
-            ShootButton.MouseButton1Click:Connect(DoFlickShoot)
+    -- Hook directo al ejecutor de disparo
+    local baseExecuteShoot = executeActualShoot
+    executeActualShoot = function(targetChar, bestPart)
+        if Flag("Sheriff_FlickShoot", false) and targetChar and bestPart then
+            local predPos = getPredictedPosition(targetChar, bestPart) or bestPart.Position
+            task.spawn(function()
+                performFlickAnimation(predPos)
+            end)
         end
-        ShootButton.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-                DoFlickShoot()
+        return baseExecuteShoot(targetChar, bestPart)
+    end
+end)
+-- ============================================================================
+-- 🚀 MÓDULO EXTRA ULTRA-OPTIMIZADO: TARGET SELECTION SUITE (PÁGINA OTHERS)
+-- ============================================================================
+task.spawn(function()
+    task.wait(0.1)
+
+    local TabSheriffObj = KillerHub:GetTab("Sheriff")
+    local PageOthersObj = TabSheriffObj and TabSheriffObj:GetPage("Others")
+    if not PageOthersObj then return end
+
+    PageOthersObj:CreateSection("Target Selection")
+    
+    local customTargetEnabled = false
+    local selectedPlayerName = "None"
+    
+    -- Cache para optimización de memoria/CPU
+    local cachedTargetPlayer = nil
+    local lastTargetCheck = 0
+
+    PageOthersObj:CreateToggle("Sheriff_ShootPlayers", "Shoot Players", function(estado)
+        customTargetEnabled = estado
+        if not estado then cachedTargetPlayer = nil end
+    end, false)
+
+    local targetDropdown = PageOthersObj:CreateDropdown("Sheriff_SelectedPlayer", "Select Player Target", {"None"}, function(sel)
+        selectedPlayerName = sel
+        cachedTargetPlayer = (sel ~= "None") and Players:FindFirstChild(sel) or nil
+    end, "None")
+
+    -- Refresco dinámico ligero (solamente cuando se agregan o quitan jugadores)
+    local function updatePlayerList()
+        local list = {"None"}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                table.insert(list, p.Name)
             end
-        end)
+        end
+        return list
+    end
+
+    targetDropdown:BindToDynamicList(updatePlayerList, 3) -- Refresco cada 3s es suficiente y ahorra ciclos de CPU
+
+    -- Limpieza de Caché si el jugador objetivo se desconecta
+    Players.PlayerRemoving:Connect(function(plr)
+        if plr.Name == selectedPlayerName then
+            selectedPlayerName = "None"
+            cachedTargetPlayer = nil
+        end
+    end)
+
+    -- Hook ultra-eficiente al Sensor de Objetivo
+    local baseGetMurderer = getMurderer
+    getMurderer = function()
+        if customTargetEnabled and selectedPlayerName ~= "None" then
+            local now = tick()
+            
+            -- Re-verificación rápida cada 0.1s para no saturar con FindFirstChild
+            if not cachedTargetPlayer or not cachedTargetPlayer.Parent or (now - lastTargetCheck > 0.1) then
+                lastTargetCheck = now
+                cachedTargetPlayer = Players:FindFirstChild(selectedPlayerName)
+            end
+
+            if cachedTargetPlayer then
+                local char = cachedTargetPlayer.Character
+                if char then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local isDead = (hum and hum.Health <= 0) or (playerDeadStatus[selectedPlayerName] == true)
+
+                    if not isDead and hrp then
+                        setTarget(cachedTargetPlayer)
+                        return cachedTargetPlayer
+                    end
+                end
+            end
+        end
+
+        return baseGetMurderer()
     end
 end)
 
