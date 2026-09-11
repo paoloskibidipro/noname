@@ -749,6 +749,7 @@ end)
 -- ============================================================================
 -- 👾 KILLER HUB | ENGINE V12.7.1 - SHERIFF SUITE (OPTIMIZADO & CORREGIDO)
 -- ============================================================================
+local KillerHub = loadstring(game:HttpGet("https://raw.githubusercontent.com/Salayer09/KillerHub/refs/heads/main/Slayer.lua"))()
 
 if getgenv().__KillerHubSheriff_Loaded then
     KillerHub:NotifyWarn("Already Loaded", "Sheriff script is already running.", 4)
@@ -2156,7 +2157,7 @@ task.spawn(function()
 
         isFlicking = true
         local originalCamCF = Camera.CFrame
-        local targetCamCF = cframeNew(Camera.CFrame.Position, targetPos)
+        local targetCamCF = CFrame.lookAt(Camera.CFrame.Position, targetPos)
 
         local flickInTween = TweenService:Create(Camera, TweenInfo.new(0.09, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
             CFrame = targetCamCF
@@ -2173,7 +2174,7 @@ task.spawn(function()
         isFlicking = false
     end
 
-    -- Hook optimizado: Sin llamadas duplicadas a getPredictedPosition
+    -- Hook de disparo
     local baseExecuteShoot = executeActualShoot
     executeActualShoot = function(targetChar, bestPart)
         if Flag("Sheriff_FlickShoot", false) and targetChar and bestPart then
@@ -2225,7 +2226,7 @@ task.spawn(function()
     local baseGetMurderer = getMurderer
     getMurderer = function()
         if customTargetEnabled and selectedPlayerName ~= "None" then
-            local now = os_clock() -- Cambio a os_clock() para mayor consistencia con el engine
+            local now = os.clock()
             
             if not cachedTargetPlayer or not cachedTargetPlayer.Parent or (now - lastTargetCheck > 0.1) then
                 lastTargetCheck = now
@@ -2237,7 +2238,7 @@ task.spawn(function()
                 if char then
                     local hum = char:FindFirstChildOfClass("Humanoid")
                     local hrp = char:FindFirstChild("HumanoidRootPart")
-                    local isDead = (hum and hum.Health <= 0) or (playerDeadStatus[selectedPlayerName] == true)
+                    local isDead = (hum and hum.Health <= 0) or (playerDeadStatus and playerDeadStatus[selectedPlayerName] == true)
 
                     if not isDead and hrp then
                         setTarget(cachedTargetPlayer)
