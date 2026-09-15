@@ -747,7 +747,7 @@ CoreGui.ChildRemoved:Connect(function(child)
 end)
 
 -- ============================================================================
--- 👾 KILLER HUB | ENGINE V12.7.1 - SHERIFF SUITE (OPTIMIZADO & CORREGIDO)
+-- 👾 KILLER HUB | ENGINE V12.7.2 - SHERIFF SUITE (DYNAMIC DISTANCE PRED)
 -- ============================================================================
 
 if getgenv().__KillerHubSheriff_Loaded then
@@ -852,8 +852,9 @@ TabSheriff:CreateToggle("Sheriff_PrioritizePing", "Prioritize Ping", function(es
     end
 end)
 
--- Aumentado el límite máximo a 25 studs
-TabSheriff:CreateSlider("Sheriff_CloseRange", "Close Range Zone", 0, 25, function() end, 6)
+-- Sistema Dinámico de Distancia (Reemplaza el antiguo Close Range seco)
+TabSheriff:CreateSlider("Sheriff_MinPredDist", "Min Distance Prediction (studs)", 0, 15, function() end, 4)
+TabSheriff:CreateSlider("Sheriff_MaxPredDist", "Max Distance Prediction (studs)", 10, 60, function() end, 22)
 
 TabSheriff:CreateSection("Visuals")
 TabSheriff:CreateMultiDropdown("Sheriff_Tracers", "Tracers", {
@@ -939,7 +940,6 @@ local duelTeams = {}
 local currentTarget = nil
 local lastPositions = {} 
 local handLineIsBlocked = false 
-local lastScanTime = 0
 
 local isWaitingForSight = false
 local waitSightThread = nil
@@ -979,7 +979,6 @@ end
 
 local function setTarget(nt) currentTarget = nt end
 
--- Normalizador universal de nombres de equipo
 local function getNormalizedTeam(plr)
     if not plr then return nil end
     local dt = duelTeams[plr.Name]
@@ -988,7 +987,6 @@ local function getNormalizedTeam(plr)
     return nil
 end
 
--- Universal MM2 Player Data Parser
 local function parsePlayerData(t)
     if type(t) == "table" then
         for name, data in pairs(t) do
@@ -1006,7 +1004,6 @@ if PlayerDataChanged and PlayerDataChanged:IsA("RemoteEvent") then
     KillerHub:AddTask(PlayerDataChanged.OnClientEvent:Connect(parsePlayerData)) 
 end
 
--- Adaptación Duelos MM2
 local function updateDuelState(data)
     table.clear(duelTeams)
     if type(data) == "table" then
@@ -1023,7 +1020,6 @@ local function updateDuelState(data)
     end
 end
 
--- Eventos de ronda
 for _, rem in pairs(ReplicatedStorage:GetDescendants()) do
     if rem:IsA("RemoteEvent") then
         local rName = rem.Name:lower()
@@ -1092,7 +1088,6 @@ local function autoUnequipWeapon()
     end
 end
 
--- SENSOR DE ENEMIGO
 local function getMurderer()
     local myChar = LocalPlayer.Character
     local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
@@ -1161,7 +1156,6 @@ local function getMurderer()
     return nil
 end
 
--- Raycasting Params
 local wallCastParams = RaycastParams.new()
 wallCastParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -1326,7 +1320,7 @@ local function getFloorHeight(targetHrp, targetChar)
     return ray and ray.Position.Y or nil
 end
 
--- Prediction Engine (Modificado sin tope horizontal y con tope vertical a 120)
+-- Prediction Engine con Verificador de Distancia Dinámico Integrado
 local function getPredictedPosition(targetChar, targetPart, customDelta)
     if not targetChar or not targetPart then return nil, nil, nil, nil, nil end
     local hrp = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1389,8 +1383,11 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         end
     end
 
-    local closeZone = Flag("Sheriff_CloseRange", 6)
-    local predictionWeight = distance <= closeZone and 0 or 1
+    -- CÁLCULO DINÁMICO DE PREDICCIÓN POR DISTANCIA (Escala Suave)
+    local minDist = Flag("Sheriff_MinPredDist", 4)
+    local maxDist = Flag("Sheriff_MaxPredDist", 22)
+    local distRange = math_max(maxDist - minDist, 0.1)
+    local predictionWeight = math_clamp((distance - minDist) / distRange, 0, 1)
 
     if lastTargetChar ~= targetChar then
         smoothedVelocity = rawVelocity 
@@ -1425,14 +1422,14 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
 
     if prioritizePing then
         local rawMS = cachedPingValue * 1000
-        local autoScale = 90 + (rawMS * 0.6) -- Mantiene piso de 90 a 0ms, sin tope de 170 arriba
+        local autoScale = 90 + (rawMS * 0.6)
 
         effectiveHLatency = (autoScale / 1000) * PREDICTION_BOOST
-        local autoVScale = math_min(autoScale, 120) -- Límite vertical elevado a 120
+        local autoVScale = math_min(autoScale, 120)
         effectiveVLatency = (autoVScale / 1000) * PREDICTION_BOOST
     else
         effectiveHLatency = (hScale / 1000) * PREDICTION_BOOST
-        local cappedVScale = math_min(vScale, 120) -- Límite vertical elevado a 120
+        local cappedVScale = math_min(vScale, 120)
         effectiveVLatency = (cappedVScale / 1000) * PREDICTION_BOOST
     end
 
@@ -1443,7 +1440,7 @@ local function getPredictedPosition(targetChar, targetPart, customDelta)
         local isStairMovement = (not isAir and math_abs(calculatedVelY) > 0.8)
 
         if isAir or isStairMovement then
-            local adaptiveYFactor = math_clamp((distance - closeZone) / 12, 0, 1)
+            local adaptiveYFactor = math_clamp((distance - minDist) / 12, 0, 1) * predictionWeight
             local vFactor = effectiveVLatency * adaptiveYFactor
 
             if isAir then
@@ -1517,7 +1514,6 @@ table.insert(_G.KillerHubLines, PredictionXYLine)
 
 local worldToViewport = Camera.WorldToViewportPoint
 
--- Variables para suavizado puramente VISUAL de Tracers
 local visPredNoY, visMinPredNoY, visPredXYExaggerated, visFinalPred36X
 
 local renderConn = RunService.RenderStepped:Connect(function(dt)
@@ -1553,7 +1549,6 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
     if visualPart then
         local _, predNoY, minPredNoY, predXYExaggerated, finalPred36X = getPredictedPosition(targetChar, visualPart, dt)
         
-        -- Interpolación visual fluida para evitar tirones ante caídas bruscas de velocidad
         if predNoY and minPredNoY then
             local tracerLerpAlpha = math_clamp(25 * dt, 0.15, 0.55)
             if not visPredNoY then
@@ -1655,7 +1650,7 @@ local renderConn = RunService.RenderStepped:Connect(function(dt)
 end)
 KillerHub:AddTask(renderConn)
 
--- Core Shoot Handler (Retorna booleano)
+-- Core Shoot Handler
 local executeActualShoot
 
 executeActualShoot = function(targetChar, bestPart)
@@ -1671,7 +1666,7 @@ executeActualShoot = function(targetChar, bestPart)
     if finalPredictedPos then
         if wallCheck and shotType ~= "Piercer Bullet" then
             if isGunBlocked(finalPredictedPos, targetChar) then
-                return false -- Disparo bloqueado por predicción tras pared
+                return false
             end
         end
 
@@ -1709,13 +1704,13 @@ executeActualShoot = function(targetChar, bestPart)
                 task.delay(0.20, autoUnequipWeapon)
             end
             
-            return true -- Disparo exitoso
+            return true
         end
     end
     return false
 end
 
--- Wait for Sight Optimizado con Debounce y Verificación Real de Disparo
+-- Wait for Sight
 local function startWaitingForSight(initialTarget)
     resetWaitState()
 
@@ -1736,7 +1731,7 @@ local function startWaitingForSight(initialTarget)
     local maxWaitTime = Flag("Sheriff_WaitTime", 15)
     local startTime = os_clock()
     local lostSightCounter = 0 
-    local sightTimeAcc = 0 -- Acumulador de tiempo en línea de visión
+    local sightTimeAcc = 0
 
     waitSightThread = task.spawn(function()
         while isWaitingForSight do
@@ -1783,14 +1778,12 @@ local function startWaitingForSight(initialTarget)
                     lostSightCounter = 0
                     sightTimeAcc = sightTimeAcc + 0.016
                     
-                    -- Filtro Anti-Falsos Positivos: Requiere ~0.035s (~2 frames) de visión clara sostenida
                     if sightTimeAcc >= 0.035 then
                         local shotFired = executeActualShoot(targetChar, bestPart)
                         if shotFired then
                             resetWaitState()
                             break
                         end
-                        -- Si 'shotFired' es false, el tiro pegaba contra la pared siguiente; mantenemos la espera
                     end
                 else
                     sightTimeAcc = 0
